@@ -39,29 +39,36 @@ SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-yt)2uovn6ck=nwxdrvh#^
 DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
 
 # Use environment variables for allowed hosts
-ALLOWED_HOSTS_str = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,uni-find-api.onrender.com')
+ALLOWED_HOSTS_str = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,jobsabroad.onrender.com')
 ALLOWED_HOSTS = [host.strip() for host in ALLOWED_HOSTS_str.split(',')]
 
 # Ensure Render domain is always included
-if 'uni-find-api.onrender.com' not in ALLOWED_HOSTS:
-    ALLOWED_HOSTS.append('uni-find-api.onrender.com')
+if 'jobsabroad.onrender.com' not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append('jobsabroad.onrender.com')
 
-# CSRF trusted origins for development
-CSRF_TRUSTED_ORIGINS = os.environ.get('CSRF_TRUSTED_ORIGINS', '').split(',') if os.environ.get('CSRF_TRUSTED_ORIGINS') else []
+# CSRF trusted origins - required for HTTPS admin access
+CSRF_TRUSTED_ORIGINS_str = os.environ.get('CSRF_TRUSTED_ORIGINS', 'https://jobsabroad.onrender.com')
+CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in CSRF_TRUSTED_ORIGINS_str.split(',') if origin.strip()]
+
+# Ensure Render domain is always included in CSRF trusted origins
+if 'https://jobsabroad.onrender.com' not in CSRF_TRUSTED_ORIGINS:
+    CSRF_TRUSTED_ORIGINS.append('https://jobsabroad.onrender.com')
 
 # Trust the 'X-Forwarded-Proto' header from the reverse proxy (like Render)
 # This ensures request.build_absolute_uri() generates https:// URLs correctly.
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
+# Security settings for production (HTTPS)
+if not DEBUG:
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_SSL_REDIRECT = False  # Render handles SSL termination
+
 # allow frontend to access backend
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5174",
     "http://localhost:5173",
-    "http://localhost:4173", # LOCAL BUILD
-    "https://uni-frontend-lac.vercel.app",
-    "https://skyblue-ibis-580217.hostingersite.com",
-    "https://addistemari.com",
-    "https://urban-happiness-q55w5qq7vvw2xqgq-5173.app.github.dev",
+    "http://localhost:4173",
 ]
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOW_CREDENTIALS = True
