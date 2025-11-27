@@ -151,22 +151,28 @@ class UserDashboardSerializer(serializers.ModelSerializer):
         if user.is_superuser or user.is_staff or user.groups.filter(name='admin').exists():
             return False
         
-        # Fallback for existing users before migration
-        try:
-            if not hasattr(obj, 'is_verified') or obj.is_verified is None:
-                return not obj.subscription_end_date
-        except AttributeError:
-            return not obj.subscription_end_date
+        # Allow all users to access dashboard without payment requirement
+        # Payment is optional for accessing premium features, not for basic dashboard access
+        # Return False to allow dashboard access without payment prompt
+        return False
         
-        # Check if user has verified active subscription
-        if obj.is_verified and obj.subscription_end_date and obj.subscription_end_date >= timezone.now().date():
-            return False
-        
-        # For existing users with subscription_end_date but no is_verified field
-        if obj.subscription_end_date and obj.subscription_end_date >= timezone.now().date():
-            return False
-        
-        return True
+        # Original payment check logic (commented out - can be re-enabled if needed)
+        # # Fallback for existing users before migration
+        # try:
+        #     if not hasattr(obj, 'is_verified') or obj.is_verified is None:
+        #         return not obj.subscription_end_date
+        # except AttributeError:
+        #     return not obj.subscription_end_date
+        # 
+        # # Check if user has verified active subscription
+        # if obj.is_verified and obj.subscription_end_date and obj.subscription_end_date >= timezone.now().date():
+        #     return False
+        # 
+        # # For existing users with subscription_end_date but no is_verified field
+        # if obj.subscription_end_date and obj.subscription_end_date >= timezone.now().date():
+        #     return False
+        # 
+        # return True
 
     class Meta:
         model = UserDashboard

@@ -735,17 +735,18 @@ class PaymentWebhookView(APIView):
                         first_name=(draft.full_name or '').split(' ')[0][:150],
                         last_name=' '.join((draft.full_name or '').split(' ')[1:])[:150]
                     )
-                    # Email the temporary password
-                    try:
-                        send_mail(
-                            subject="Your UNI-FINDER account",
-                            message=f"Your account has been created. Temporary password: {temp_password}. Please log in and change it.",
-                            from_email=settings.DEFAULT_FROM_EMAIL,
-                            recipient_list=[target_email],
-                            fail_silently=True
-                        )
-                    except Exception:
-                        pass
+                    # Email the temporary password - DISABLED for performance
+                    # Email sending disabled for now
+                    # try:
+                    #     send_mail(
+                    #         subject="Your UNI-FINDER account",
+                    #         message=f"Your account has been created. Temporary password: {temp_password}. Please log in and change it.",
+                    #         from_email=settings.DEFAULT_FROM_EMAIL,
+                    #         recipient_list=[target_email],
+                    #         fail_silently=True
+                    #     )
+                    # except Exception:
+                    #     pass
                 # Generate JWT tokens for auto-login
                 refresh = RefreshToken.for_user(target_user)
                 auth_payload = {"refresh": str(refresh), "access": str(refresh.access_token)}

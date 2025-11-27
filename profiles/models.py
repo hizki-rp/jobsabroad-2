@@ -62,41 +62,45 @@ def save_user_profile(sender, instance, **kwargs):
 def send_welcome_email_on_registration(sender, instance, created, **kwargs):
     """
     Send welcome email to new users upon registration
+    DISABLED: Email sending is currently disabled to improve performance
     """
+    # Email sending disabled for now
     if created:
-        try:
-            # Get user's first name or username for personalization
-            user_name = instance.first_name if instance.first_name else instance.username
-            
-            # Welcome message for new users
-            subject = "Welcome to Addis Temari - Complete Your Account Setup"
-            message = f"""Dear {user_name},
-
-Welcome to Addis Temari! We're excited to have you join our community of ambitious students pursuing their dreams of studying abroad.
-
-Thank you for creating your account! To get the most out of your Addis Temari experience, you must complete your account by subscribing to our premium services. This will unlock:
-
-🎓 Access to our comprehensive university database
-📋 Personalized application guidance  
-💼 Scholarship opportunities
-📊 Application tracking tools
-🎯 Expert support throughout your journey
-
-Complete your account activation today and take the first step towards your international education goals!
-
-Best regards,
-The Addis Temari Team"""
-
-            # Send email
-            send_mail(
-                subject=subject,
-                message=message,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[instance.email],
-                fail_silently=False,
-            )
-            
-            logger.info(f"Welcome email sent to {instance.email}")
-            
-        except Exception as e:
-            logger.error(f"Failed to send welcome email to {instance.email}: {str(e)}")
+        logger.info(f"User {instance.username} registered - email sending disabled")
+        # Email sending code commented out for performance
+        # try:
+        #     # Get user's first name or username for personalization
+        #     user_name = instance.first_name if instance.first_name else instance.username
+        #     
+        #     # Welcome message for new users
+        #     subject = "Welcome to Addis Temari - Complete Your Account Setup"
+        #     message = f"""Dear {user_name},
+        #
+        # Welcome to Addis Temari! We're excited to have you join our community of ambitious students pursuing their dreams of studying abroad.
+        #
+        # Thank you for creating your account! To get the most out of your Addis Temari experience, you must complete your account by subscribing to our premium services. This will unlock:
+        #
+        # 🎓 Access to our comprehensive university database
+        # 📋 Personalized application guidance  
+        # 💼 Scholarship opportunities
+        # 📊 Application tracking tools
+        # 🎯 Expert support throughout your journey
+        #
+        # Complete your account activation today and take the first step towards your international education goals!
+        #
+        # Best regards,
+        # The Addis Temari Team"""
+        #
+        #     # Send email
+        #     send_mail(
+        #         subject=subject,
+        #         message=message,
+        #         from_email=settings.DEFAULT_FROM_EMAIL,
+        #         recipient_list=[instance.email],
+        #         fail_silently=False,
+        #     )
+        #     
+        #     logger.info(f"Welcome email sent to {instance.email}")
+        #     
+        # except Exception as e:
+        #     logger.error(f"Failed to send welcome email to {instance.email}: {str(e)}")

@@ -146,63 +146,67 @@ class ScholarshipResult(models.Model):
 def send_payment_completion_email(sender, instance, created, **kwargs):
     """
     Send welcome email to users when they complete payment (subscription becomes active)
+    DISABLED: Email sending is currently disabled to improve performance
     """
+    # Email sending disabled for now
     if not created and instance.subscription_status == 'active':
-        try:
-            # Get user's first name or username for personalization
-            user_name = instance.user.first_name if instance.user.first_name else instance.user.username
-            
-            # Welcome message for paid users
-            subject = "Welcome to Addis Temari Premium - Your Next Steps"
-            message = f"""Dear {user_name},
-
-Thank you for completing your account creation and being a valued member! We're thrilled to support you on your journey to international education.
-
-Here's what you need to do next:
-
-📋 REQUIRED DOCUMENTS FOR UNIVERSITY APPLICATION:
-
-For Bachelor's Degree:
-• High school transcripts (translated and certified)
-• English proficiency test (IELTS/TOEFL) - minimum 6.0 IELTS or 80 TOEFL - Note that some universities accept Proficiency letter or medium of instruction
-• Personal statement/essay
-• Letters of recommendation (2-3)
-• Passport copy
-• Financial documents (bank statements, sponsorship letters)
-• Application fee payment proof
-
-For Master's Degree:
-• Bachelor's degree certificate and transcripts (translated and certified)
-• English proficiency test (IELTS/TOEFL) - minimum 6.5 IELTS or 90 TOEFL
-• Statement of purpose
-• Letters of recommendation (2-3 academic references)
-• CV/Resume
-• Research proposal (for research-based programs)
-• Passport copy
-• Financial documents
-• Application fee payment proof
-
-🎯 NEXT STEPS:
-1. Complete your profile with accurate information
-2. Browse our university database to find your ideal programs
-3. Start preparing your application documents
-4. Use our application tracking tools to stay organized
-
-Obtain these documents for your future success! Our team is here to support you every step of the way.
-
-Best regards,
-The Addis Temari Team"""
-
-            # Send email
-            send_mail(
-                subject=subject,
-                message=message,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[instance.user.email],
-                fail_silently=False,
-            )
-            
-            logger.info(f"Payment completion email sent to {instance.user.email}")
-            
-        except Exception as e:
-            logger.error(f"Failed to send payment completion email to {instance.user.email}: {str(e)}")
+        logger.info(f"User {instance.user.username} subscription activated - email sending disabled")
+        # Email sending code commented out for performance
+        # try:
+        #     # Get user's first name or username for personalization
+        #     user_name = instance.user.first_name if instance.user.first_name else instance.user.username
+        #     
+        #     # Welcome message for paid users
+        #     subject = "Welcome to Addis Temari Premium - Your Next Steps"
+        #     message = f"""Dear {user_name},
+        #
+        # Thank you for completing your account creation and being a valued member! We're thrilled to support you on your journey to international education.
+        #
+        # Here's what you need to do next:
+        #
+        # 📋 REQUIRED DOCUMENTS FOR UNIVERSITY APPLICATION:
+        #
+        # For Bachelor's Degree:
+        # • High school transcripts (translated and certified)
+        # • English proficiency test (IELTS/TOEFL) - minimum 6.0 IELTS or 80 TOEFL - Note that some universities accept Proficiency letter or medium of instruction
+        # • Personal statement/essay
+        # • Letters of recommendation (2-3)
+        # • Passport copy
+        # • Financial documents (bank statements, sponsorship letters)
+        # • Application fee payment proof
+        #
+        # For Master's Degree:
+        # • Bachelor's degree certificate and transcripts (translated and certified)
+        # • English proficiency test (IELTS/TOEFL) - minimum 6.5 IELTS or 90 TOEFL
+        # • Statement of purpose
+        # • Letters of recommendation (2-3 academic references)
+        # • CV/Resume
+        # • Research proposal (for research-based programs)
+        # • Passport copy
+        # • Financial documents
+        # • Application fee payment proof
+        #
+        # 🎯 NEXT STEPS:
+        # 1. Complete your profile with accurate information
+        # 2. Browse our university database to find your ideal programs
+        # 3. Start preparing your application documents
+        # 4. Use our application tracking tools to stay organized
+        #
+        # Obtain these documents for your future success! Our team is here to support you every step of the way.
+        #
+        # Best regards,
+        # The Addis Temari Team"""
+        #
+        #     # Send email
+        #     send_mail(
+        #         subject=subject,
+        #         message=message,
+        #         from_email=settings.DEFAULT_FROM_EMAIL,
+        #         recipient_list=[instance.user.email],
+        #         fail_silently=False,
+        #     )
+        #     
+        #     logger.info(f"Payment completion email sent to {instance.user.email}")
+        #     
+        # except Exception as e:
+        #     logger.error(f"Failed to send payment completion email to {instance.user.email}: {str(e)}")
