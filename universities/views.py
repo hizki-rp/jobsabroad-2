@@ -169,6 +169,21 @@ class CountryJobSiteViewSet(viewsets.ModelViewSet):
     search_fields = ['country', 'site_name']
 
 @api_view(['GET'])
+@permission_classes([AllowAny])
+def popular_countries(request):
+    """Get popular countries (countries with most job sites)"""
+    from django.db.models import Count
+    
+    # Get countries with job sites, ordered by count
+    countries = CountryJobSite.objects.values('country').annotate(
+        site_count=Count('id')
+    ).order_by('-site_count')[:10]  # Top 10 countries
+    
+    return Response({
+        'popular_countries': list(countries)
+    })
+
+@api_view(['GET'])
 @permission_classes([IsAdminUser])
 def scholarship_results_list(request):
     """List all ScholarshipOwl API results for admin"""
@@ -241,7 +256,27 @@ class DashboardView(APIView):
         # get_or_create ensures a dashboard exists if the signal failed for some reason
         dashboard, created = UserDashboard.objects.get_or_create(user=request.user)
         serializer = UserDashboardSerializer(dashboard)
-        return Response(serializer.data)
+        response_data = serializer.data
+        
+        # Get user's profile country
+        user_country = None
+        try:
+            if hasattr(request.user, 'profile') and request.user.profile.country:
+                user_country = request.user.profile.country
+        except Exception:
+            pass
+        
+        # Get job sites filtered by user's country
+        job_sites = []
+        if user_country:
+            job_sites = CountryJobSite.objects.filter(
+                country__icontains=user_country
+            ).values('id', 'country', 'site_name', 'site_url')
+        
+        response_data['country'] = user_country
+        response_data['job_sites'] = list(job_sites)
+        
+        return Response(response_data)
 
     def post(self, request):
         dashboard, created = UserDashboard.objects.get_or_create(user=request.user)

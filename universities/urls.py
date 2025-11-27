@@ -42,6 +42,9 @@ urlpatterns = [
     path('scholarship-results/', views.scholarship_results_list, name='scholarship-results'),
     path('create-sample-scholarships/', views.create_sample_scholarships, name='create-sample-scholarships'),
     
+    # Popular Countries
+    path('popular-countries/', views.popular_countries, name='popular-countries'),
+    
     # Bulk Email
     path('send-bulk-email/', views.send_bulk_email, name='send-bulk-email'),
 
