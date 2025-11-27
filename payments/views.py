@@ -2,10 +2,13 @@ from django.shortcuts import render
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAdminUser, AllowAny
 from rest_framework.response import Response
+from rest_framework import status
 from django.utils import timezone
 from datetime import timedelta
 from .models import Payment
 from django.db.models import Sum, Count
+from django.contrib.auth.models import User
+from rest_framework_simplejwt.tokens import RefreshToken
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -68,6 +71,55 @@ def recent_payments(request):
         'unique_users': list(unique_users),
         'payments': payment_data
     })
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def confirm_payment(request):
+    """Confirm payment and return auth tokens for auto-login"""
+    tx_ref = request.data.get('tx_ref') or request.data.get('payment_ref')
+    draft_id = request.data.get('draft_id')
+    
+    if not tx_ref:
+        return Response(
+            {'error': 'Transaction reference (tx_ref) is required'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    try:
+        # Find the payment
+        payment = Payment.objects.filter(tx_ref=tx_ref, status='success').first()
+        if not payment:
+            return Response(
+                {'error': 'Payment not found or not successful'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        user = payment.user
+        
+        # Generate JWT tokens for auto-login
+        refresh = RefreshToken.for_user(user)
+        
+        return Response({
+            'status': 'success',
+            'message': 'Payment confirmed',
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
+            'token': str(refresh.access_token),  # For backward compatibility
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'name': f"{user.first_name} {user.last_name}".strip() or user.username
+            }
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        return Response(
+            {'error': f'Error confirming payment: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
