@@ -65,13 +65,28 @@ if not DEBUG:
     SECURE_SSL_REDIRECT = False  # Render handles SSL termination
 
 # allow frontend to access backend
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5174",
-    "http://localhost:5173",
-    "http://localhost:4173",
-]
-CORS_ALLOW_ALL_ORIGINS = False
+# Get CORS origins from environment variable, fallback to defaults
+CORS_ORIGINS_STR = os.environ.get('CORS_ALLOWED_ORIGINS', 
+    'http://localhost:5174,http://localhost:5173,http://localhost:4173,https://jobsabroad.onrender.com')
+CORS_ALLOWED_ORIGINS = [origin.strip() for origin in CORS_ORIGINS_STR.split(',') if origin.strip()]
+
+# For development/production, allow all origins if set in environment
+# Set CORS_ALLOW_ALL_ORIGINS=True in Render environment variables if needed
+CORS_ALLOW_ALL_ORIGINS = os.environ.get('CORS_ALLOW_ALL_ORIGINS', 'True').lower() == 'true'
 CORS_ALLOW_CREDENTIALS = True
+
+# Additional CORS settings
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
 
 
 # Application definition
