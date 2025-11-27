@@ -15,11 +15,25 @@ class UserSerializer(serializers.ModelSerializer):
     first_name = serializers.CharField(required=True, max_length=150)
     last_name = serializers.CharField(required=True, max_length=150)
     phone_number = serializers.CharField(required=False, allow_blank=True, max_length=20, write_only=True)
+    # Profile fields
+    dob = serializers.DateField(required=False, allow_null=True, write_only=True)
+    currentRole = serializers.CharField(required=False, allow_blank=True, max_length=100, write_only=True)
+    yearsExperience = serializers.IntegerField(required=False, allow_null=True, write_only=True)
+    skills = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    country = serializers.CharField(required=False, allow_blank=True, max_length=100, write_only=True)
+    # Job preference fields
+    desiredStartDate = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    workPermitStatus = serializers.CharField(required=False, allow_blank=True, max_length=100, write_only=True)
+    desiredSalary = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = User
         # Add 'email' to the list of fields
-        fields = ["id", "username", "email", "password", "first_name", "last_name", "phone_number"]
+        fields = [
+            "id", "username", "email", "password", "first_name", "last_name", 
+            "phone_number", "dob", "currentRole", "yearsExperience", "skills", 
+            "country", "desiredStartDate", "workPermitStatus", "desiredSalary"
+        ]
         extra_kwargs = {"password": {"write_only": True}}
 
     def validate_username(self, value):
@@ -29,7 +43,17 @@ class UserSerializer(serializers.ModelSerializer):
         return value.lower()  # Store usernames in lowercase
 
     def create(self, validated_data):
+        # Extract profile and job preference fields
         phone_number = validated_data.pop('phone_number', None)
+        dob = validated_data.pop('dob', None)
+        current_role = validated_data.pop('currentRole', None)
+        years_experience = validated_data.pop('yearsExperience', None)
+        skills_str = validated_data.pop('skills', None)
+        country = validated_data.pop('country', None)
+        desired_start_date_str = validated_data.pop('desiredStartDate', None)
+        work_permit_status = validated_data.pop('workPermitStatus', None)
+        desired_salary_str = validated_data.pop('desiredSalary', None)
+        
         # Use create_user to properly hash the password
         user = User.objects.create_user(
             username=validated_data['username'],
@@ -50,9 +74,50 @@ class UserSerializer(serializers.ModelSerializer):
         # Always create a profile for the new user. This is more robust than
         # relying on a signal, which might fail or not exist.
         profile, created = Profile.objects.get_or_create(user=user)
+        
+        # Update profile fields
         if phone_number:
             profile.phone_number = phone_number
-            profile.save()
+        if dob:
+            profile.dob = dob
+        if current_role:
+            profile.current_role = current_role
+        if years_experience is not None:
+            profile.years_experience = years_experience
+        if skills_str:
+            # Parse skills from comma-separated string to list
+            skills_list = [skill.strip() for skill in skills_str.split(',') if skill.strip()]
+            profile.skills = skills_list
+        if country:
+            profile.country = country
+        profile.save()
+
+        # Create or update job preferences
+        from profiles.models import JobPreference
+        job_preference, created = JobPreference.objects.get_or_create(profile=profile)
+        if desired_start_date_str:
+            # Parse month string (YYYY-MM) to date (first day of month)
+            try:
+                from datetime import datetime
+                date_obj = datetime.strptime(desired_start_date_str, '%Y-%m').date()
+                job_preference.desired_start_date = date_obj
+            except (ValueError, TypeError):
+                pass
+        if work_permit_status:
+            job_preference.work_permit_status = work_permit_status
+        if desired_salary_str:
+            # Try to parse salary string (remove currency symbols and extract number)
+            try:
+                import re
+                # Extract numbers from string like "€50,000 - €70,000" or "50000"
+                numbers = re.findall(r'[\d,]+', desired_salary_str.replace(',', ''))
+                if numbers:
+                    # Take the first number found
+                    salary_value = float(numbers[0].replace(',', ''))
+                    job_preference.desired_salary = salary_value
+            except (ValueError, TypeError):
+                pass
+        job_preference.save()
 
         return user
 

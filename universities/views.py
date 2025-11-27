@@ -299,9 +299,15 @@ class DashboardView(APIView):
         # Get job sites filtered by user's country
         job_sites = []
         if user_country:
+            # Try exact match first, then case-insensitive contains
             job_sites = CountryJobSite.objects.filter(
-                country__icontains=user_country
+                country__iexact=user_country
             ).values('id', 'country', 'site_name', 'site_url')
+            if not job_sites.exists():
+                # Fallback to case-insensitive contains
+                job_sites = CountryJobSite.objects.filter(
+                    country__icontains=user_country
+                ).values('id', 'country', 'site_name', 'site_url')
         
         response_data['country'] = user_country
         response_data['job_sites'] = list(job_sites)
