@@ -208,6 +208,11 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
         if not user or not user.is_active:
             raise serializers.ValidationError('No active account found with the given credentials.')
 
+        # Ensure UserDashboard exists (create if missing with default 'none' subscription status)
+        dashboard, created = UserDashboard.objects.get_or_create(user=user)
+        if created:
+            print(f"Created UserDashboard for user {user.username} with default subscription status: {dashboard.subscription_status}")
+
         self.user = user
 
         refresh = self.get_token(self.user)
