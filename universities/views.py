@@ -163,7 +163,7 @@ def get_scholarships(request):
 class CountryJobSiteViewSet(viewsets.ModelViewSet):
     queryset = CountryJobSite.objects.all()
     serializer_class = CountryJobSiteSerializer
-    permission_classes = [IsAdminUser]
+    permission_classes = [AllowAny]  # Allow anyone to view country job sites
     filter_backends = [DjangoFilterBackend, drf_filters.SearchFilter]
     filterset_fields = { 'country': ['exact', 'icontains'] }
     search_fields = ['country', 'site_name']
