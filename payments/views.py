@@ -96,6 +96,31 @@ def confirm_payment(request):
         
         user = payment.user
         
+        # Ensure subscription is updated (in case webhook hasn't processed yet)
+        from universities.models import UserDashboard
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        dashboard, _ = UserDashboard.objects.get_or_create(user=user)
+        
+        # Update subscription if not already active
+        if dashboard.subscription_status != 'active' or not dashboard.subscription_end_date:
+            try:
+                months_added = dashboard.update_subscription(payment.amount, monthly_price=600)
+                print(f"Payment confirmed: {months_added} months added for user {user.username}")
+            except Exception as e:
+                print(f"Error updating subscription: {e}")
+                # Fallback to old method
+                dashboard.subscription_status = 'active'
+                dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30)
+                dashboard.is_verified = True
+                dashboard.save()
+        
+        # Ensure is_verified is set
+        if not dashboard.is_verified:
+            dashboard.is_verified = True
+            dashboard.save()
+        
         # Generate JWT tokens for auto-login
         refresh = RefreshToken.for_user(user)
         
