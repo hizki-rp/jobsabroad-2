@@ -255,6 +255,36 @@ class DashboardView(APIView):
     def get(self, request):
         # get_or_create ensures a dashboard exists if the signal failed for some reason
         dashboard, created = UserDashboard.objects.get_or_create(user=request.user)
+        
+        # Check if user has successful payments but subscription isn't active
+        # This can happen if payment was processed but subscription wasn't updated
+        from payments.models import Payment
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        successful_payments = Payment.objects.filter(
+            user=request.user,
+            status='success'
+        ).order_by('-payment_date')
+        
+        # If user has successful payments but subscription isn't active, update it
+        if successful_payments.exists() and (dashboard.subscription_status != 'active' or not dashboard.subscription_end_date):
+            try:
+                # Get the most recent payment
+                latest_payment = successful_payments.first()
+                # Update subscription
+                months_added = dashboard.update_subscription(latest_payment.amount, monthly_price=600)
+                dashboard.is_verified = True
+                dashboard.save()
+                print(f"Updated subscription for user {request.user.username} from existing payment")
+            except Exception as e:
+                print(f"Error updating subscription from existing payment: {e}")
+                # Fallback
+                dashboard.subscription_status = 'active'
+                dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30)
+                dashboard.is_verified = True
+                dashboard.save()
+        
         serializer = UserDashboardSerializer(dashboard)
         response_data = serializer.data
         
