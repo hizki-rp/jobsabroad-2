@@ -1,0 +1,7 @@
+# h:\Django2\UNI-FINDER-GIT\backend\profiles\urls.py
+from django.urls import path
+from .views import ProfileView
+
+urlpatterns = [
+    path('profile/', ProfileView.as_view(), name='user-profile'),
+]

@@ -1,0 +1,8 @@
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path('initialize-payment/', views.initialize_payment, name='initialize-payment'),
+    path('recent/', views.recent_payments, name='recent_payments'),
+    path('today/', views.todays_payments, name='todays_payments'),
+]

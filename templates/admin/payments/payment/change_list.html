@@ -1,0 +1,42 @@
+{% extends "admin/change_list.html" %}
+{% load admin_urls static admin_list %}
+
+{% block content_title %}
+    <h1>Payment Management & Earnings Dashboard</h1>
+{% endblock %}
+
+{% block result_list %}
+    {% if earnings_stats %}
+    <div style="background: #f8f9fa; padding: 20px; margin-bottom: 20px; border-radius: 8px; border: 1px solid #dee2e6;">
+        <h2 style="color: #28a745; margin-bottom: 15px;">📊 Earnings Overview</h2>
+        
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; margin-bottom: 20px;">
+            <div style="background: white; padding: 15px; border-radius: 6px; border-left: 4px solid #28a745;">
+                <h3 style="margin: 0 0 5px 0; color: #28a745;">{{ earnings_stats.current_month_name }}</h3>
+                <p style="margin: 0; font-size: 24px; font-weight: bold;">{{ earnings_stats.current_month_total }} ETB</p>
+                <small style="color: #6c757d;">{{ earnings_stats.current_month_count }} payments</small>
+            </div>
+            
+            <div style="background: white; padding: 15px; border-radius: 6px; border-left: 4px solid #17a2b8;">
+                <h3 style="margin: 0 0 5px 0; color: #17a2b8;">{{ earnings_stats.last_month_name }}</h3>
+                <p style="margin: 0; font-size: 24px; font-weight: bold;">{{ earnings_stats.last_month_total }} ETB</p>
+                <small style="color: #6c757d;">{{ earnings_stats.last_month_count }} payments</small>
+            </div>
+            
+            <div style="background: white; padding: 15px; border-radius: 6px; border-left: 4px solid #ffc107;">
+                <h3 style="margin: 0 0 5px 0; color: #ffc107;">Total Earnings</h3>
+                <p style="margin: 0; font-size: 24px; font-weight: bold;">{{ earnings_stats.total_earnings }} ETB</p>
+                <small style="color: #6c757d;">{{ earnings_stats.total_payments }} total payments</small>
+            </div>
+            
+            <div style="background: white; padding: 15px; border-radius: 6px; border-left: 4px solid #6f42c1;">
+                <h3 style="margin: 0 0 5px 0; color: #6f42c1;">Active Subscribers</h3>
+                <p style="margin: 0; font-size: 24px; font-weight: bold;">{{ earnings_stats.active_subscribers }}</p>
+                <small style="color: #6c757d;">Paid in last 30 days</small>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    
+    {{ block.super }}
+{% endblock %}
