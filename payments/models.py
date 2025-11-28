@@ -9,8 +9,6 @@ class Payment(models.Model):
     status = models.CharField(max_length=20, default='pending')
     payment_date = models.DateTimeField(default=timezone.now)
     chapa_reference = models.CharField(max_length=100, blank=True, null=True)
-    # Track if this payment has been applied to user's subscription
-    subscription_updated = models.BooleanField(default=False)
     
     class Meta:
         ordering = ['-payment_date']
