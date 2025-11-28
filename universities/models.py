@@ -87,21 +87,32 @@ class UserDashboard(models.Model):
     months_subscribed = models.IntegerField(default=0)
     is_verified = models.BooleanField(default=False)
     
-    def update_subscription(self, amount_paid, monthly_price=600):
+    def update_subscription(self, amount_paid, monthly_price=500):
         from django.utils import timezone
         from datetime import timedelta
         
         self.total_paid += amount_paid
         months_to_add = int(amount_paid // monthly_price)
         
-        if months_to_add > 0:
-            self.months_subscribed += months_to_add
+        # Always activate subscription when payment is received, even if amount is less than monthly_price
+        # This ensures subscription is activated for any payment
+        if amount_paid > 0:
+            if months_to_add > 0:
+                self.months_subscribed += months_to_add
+            else:
+                # If amount is less than monthly_price, still add 1 month
+                self.months_subscribed += 1
+                months_to_add = 1
+            
             self.is_verified = True
             self.subscription_status = 'active'
             
+            # Always set or extend subscription end date
             if self.subscription_end_date and self.subscription_end_date > timezone.now().date():
+                # If subscription is still active, extend from current end date
                 self.subscription_end_date += timedelta(days=30 * months_to_add)
             else:
+                # If subscription is expired or doesn't exist, set from today
                 self.subscription_end_date = timezone.now().date() + timedelta(days=30 * months_to_add)
         
         self.save()

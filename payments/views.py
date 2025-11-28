@@ -86,15 +86,47 @@ def confirm_payment(request):
         )
     
     try:
-        # Find the payment
-        payment = Payment.objects.filter(tx_ref=tx_ref, status='success').first()
-        if not payment:
+        # Find the payment - check for any payment with this tx_ref first
+        payment = Payment.objects.filter(tx_ref=tx_ref).first()
+        
+        # If payment doesn't exist, try to find user from draft_id or create payment
+        user = None
+        if payment:
+            user = payment.user
+            # If payment exists but status is not 'success', update it
+            if payment.status != 'success':
+                payment.status = 'success'
+                payment.save()
+                print(f"Updated payment {tx_ref} status to 'success' during confirmation")
+        else:
+            # Payment doesn't exist - try to find user from draft_id
+            if draft_id:
+                from universities.models import ApplicationDraft
+                try:
+                    draft = ApplicationDraft.objects.get(id=draft_id)
+                    user = draft.user if hasattr(draft, 'user') else None
+                    if not user:
+                        # Try to find user by email
+                        from django.contrib.auth.models import User
+                        user = User.objects.filter(email=draft.email).first()
+                    
+                    if user:
+                        # Create payment record
+                        payment = Payment.objects.create(
+                            user=user,
+                            amount=500.00,
+                            tx_ref=tx_ref,
+                            status='success'
+                        )
+                        print(f"Created payment record {tx_ref} for user {user.username} during confirmation")
+                except Exception as e:
+                    print(f"Error finding user from draft_id: {e}")
+        
+        if not user:
             return Response(
-                {'error': 'Payment not found or not successful'},
+                {'error': 'Payment not found and unable to determine user'},
                 status=status.HTTP_404_NOT_FOUND
             )
-        
-        user = payment.user
         
         # Ensure subscription is updated (in case webhook hasn't processed yet)
         from universities.models import UserDashboard
@@ -103,18 +135,40 @@ def confirm_payment(request):
         
         dashboard, _ = UserDashboard.objects.get_or_create(user=user)
         
-        # Update subscription if not already active
-        if dashboard.subscription_status != 'active' or not dashboard.subscription_end_date:
-            try:
-                months_added = dashboard.update_subscription(payment.amount, monthly_price=600)
-                print(f"Payment confirmed: {months_added} months added for user {user.username}")
-            except Exception as e:
-                print(f"Error updating subscription: {e}")
-                # Fallback to old method
+        # Always update subscription when payment is confirmed
+        # Ensure both status and end_date are set
+        try:
+            amount = payment.amount if payment else 500.00
+            months_added = dashboard.update_subscription(amount, monthly_price=500)
+            
+            # Ensure subscription is active and end_date is set (even if months_added is 0)
+            if dashboard.subscription_status != 'active' or not dashboard.subscription_end_date:
                 dashboard.subscription_status = 'active'
+                if not dashboard.subscription_end_date:
+                    dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30)
+                elif dashboard.subscription_end_date < timezone.now().date():
+                    # If expired, extend from today
+                    dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30)
+                else:
+                    # If active, extend from current end date
+                    dashboard.subscription_end_date += timedelta(days=30)
+            
+            dashboard.is_verified = True
+            dashboard.save()
+            print(f"Payment confirmed: {months_added} months added for user {user.username}. Subscription status: {dashboard.subscription_status}, End date: {dashboard.subscription_end_date}")
+        except Exception as e:
+            print(f"Error updating subscription: {e}")
+            import traceback
+            traceback.print_exc()
+            # Fallback - ensure subscription is activated with proper end date
+            dashboard.subscription_status = 'active'
+            if not dashboard.subscription_end_date or dashboard.subscription_end_date < timezone.now().date():
                 dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30)
-                dashboard.is_verified = True
-                dashboard.save()
+            else:
+                dashboard.subscription_end_date += timedelta(days=30)
+            dashboard.is_verified = True
+            dashboard.save()
+            print(f"Used fallback to activate subscription for user {user.username}. End date: {dashboard.subscription_end_date}")
         
         # Ensure is_verified is set
         if not dashboard.is_verified:
