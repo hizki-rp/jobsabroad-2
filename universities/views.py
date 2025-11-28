@@ -262,57 +262,100 @@ class DashboardView(APIView):
         from django.utils import timezone
         from datetime import timedelta
         
-        # Check for successful payments
+        # Check for successful payments - check all time, not just recent
         successful_payments = Payment.objects.filter(
             user=request.user,
             status='success'
         ).order_by('-payment_date')
         
-        # Also check for recent payments (within last 24 hours) that might not have status='success' yet
-        # This handles cases where webhook hasn't processed yet
+        # Also check for ANY payments (regardless of status) within last 48 hours
+        # This handles cases where webhook hasn't processed yet or payment status wasn't set
         recent_payments = Payment.objects.filter(
             user=request.user,
-            payment_date__gte=timezone.now() - timedelta(hours=24)
+            payment_date__gte=timezone.now() - timedelta(hours=48)
         ).order_by('-payment_date')
+        
+        # Also check for payments by user email (in case payment was created with email but user wasn't linked)
+        # This is a fallback for edge cases
+        if not successful_payments.exists() and not recent_payments.exists():
+            # Try to find payments by matching email in tx_ref or other fields
+            user_email_payments = Payment.objects.filter(
+                payment_date__gte=timezone.now() - timedelta(hours=48)
+            )
+            # Check if any payment's user email matches
+            for p in user_email_payments:
+                if p.user and p.user.email == request.user.email:
+                    recent_payments = Payment.objects.filter(id=p.id)
+                    break
+        
+        print(f"Dashboard check for user {request.user.username}:")
+        print(f"  - Successful payments: {successful_payments.count()}")
+        print(f"  - Recent payments: {recent_payments.count()}")
+        print(f"  - Current subscription_status: {dashboard.subscription_status}")
+        print(f"  - Current subscription_end_date: {dashboard.subscription_end_date}")
         
         # If user has successful payments but subscription isn't active, update it
         payment_to_use = None
         if successful_payments.exists():
             payment_to_use = successful_payments.first()
-        elif recent_payments.exists() and dashboard.subscription_status == 'none':
+            print(f"  - Using successful payment: {payment_to_use.tx_ref}, amount: {payment_to_use.amount}, date: {payment_to_use.payment_date}")
+        elif recent_payments.exists():
             # If no successful payments but recent payment exists, check if we should update
             # This handles edge cases where payment was just made
             payment_to_use = recent_payments.first()
-            # Only update if payment is very recent (within last hour) to avoid false positives
-            if payment_to_use and (timezone.now() - payment_to_use.payment_date).total_seconds() < 3600:
+            print(f"  - Found recent payment: {payment_to_use.tx_ref}, status: {payment_to_use.status}, amount: {payment_to_use.amount}, date: {payment_to_use.payment_date}")
+            # Update if payment is recent (within last 48 hours) - more lenient to catch delayed webhooks
+            if payment_to_use and (timezone.now() - payment_to_use.payment_date).total_seconds() < 172800:  # 48 hours
                 # Mark payment as success if it's recent (webhook might be delayed)
                 if payment_to_use.status != 'success':
                     payment_to_use.status = 'success'
                     payment_to_use.save()
-                    print(f"Marked recent payment {payment_to_use.tx_ref} as success for user {request.user.username}")
+                    print(f"  - Marked recent payment {payment_to_use.tx_ref} as success for user {request.user.username}")
         
+        # Always check if subscription needs updating when payment exists
+        if payment_to_use:
+            print(f"  - Payment found, checking if subscription needs update...")
+            print(f"  - Subscription status: {dashboard.subscription_status}, End date: {dashboard.subscription_end_date}")
+            
+        # Update subscription if payment exists AND subscription is not active
         if payment_to_use and (dashboard.subscription_status != 'active' or not dashboard.subscription_end_date):
             try:
+                # Refresh dashboard from DB to get latest state
+                dashboard.refresh_from_db()
+                print(f"  - Before update: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}")
+                
                 # Update subscription
                 months_added = dashboard.update_subscription(payment_to_use.amount, monthly_price=500)
+                print(f"  - After update_subscription: months_added={months_added}, status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}")
+                
+                # Refresh again to ensure we have latest state
+                dashboard.refresh_from_db()
                 
                 # Ensure subscription is active and end_date is set (even if months_added is 0)
                 if dashboard.subscription_status != 'active' or not dashboard.subscription_end_date:
+                    print(f"  - Subscription still not active, forcing activation...")
                     dashboard.subscription_status = 'active'
                     if not dashboard.subscription_end_date:
                         dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30)
+                        print(f"  - Set end_date from null to: {dashboard.subscription_end_date}")
                     elif dashboard.subscription_end_date < timezone.now().date():
                         # If expired, extend from today
                         dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30)
+                        print(f"  - Extended expired end_date to: {dashboard.subscription_end_date}")
                     else:
                         # If active, extend from current end date
                         dashboard.subscription_end_date += timedelta(days=30)
+                        print(f"  - Extended active end_date to: {dashboard.subscription_end_date}")
                 
                 dashboard.is_verified = True
                 dashboard.save()
-                print(f"Updated subscription for user {request.user.username} from payment {payment_to_use.tx_ref} (status: {payment_to_use.status}). End date: {dashboard.subscription_end_date}")
+                
+                # Final refresh to confirm
+                dashboard.refresh_from_db()
+                print(f"  - FINAL: Updated subscription for user {request.user.username} from payment {payment_to_use.tx_ref}")
+                print(f"  - FINAL: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}, is_verified={dashboard.is_verified}")
             except Exception as e:
-                print(f"Error updating subscription from existing payment: {e}")
+                print(f"  - ERROR updating subscription from existing payment: {e}")
                 import traceback
                 traceback.print_exc()
                 # Fallback - ensure subscription is activated with proper end date
@@ -323,7 +366,7 @@ class DashboardView(APIView):
                     dashboard.subscription_end_date += timedelta(days=30)
                 dashboard.is_verified = True
                 dashboard.save()
-                print(f"Used fallback to activate subscription for user {request.user.username}. End date: {dashboard.subscription_end_date}")
+                print(f"  - Used fallback to activate subscription for user {request.user.username}. End date: {dashboard.subscription_end_date}")
         
         serializer = UserDashboardSerializer(dashboard)
         response_data = serializer.data

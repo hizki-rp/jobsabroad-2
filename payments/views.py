@@ -135,27 +135,45 @@ def confirm_payment(request):
         
         dashboard, _ = UserDashboard.objects.get_or_create(user=user)
         
+        # Refresh dashboard to get latest state
+        dashboard.refresh_from_db()
+        print(f"Payment confirmation for user {user.username}:")
+        print(f"  - Before update: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}")
+        print(f"  - Payment amount: {payment.amount if payment else 500.00}")
+        
         # Always update subscription when payment is confirmed
         # Ensure both status and end_date are set
         try:
             amount = payment.amount if payment else 500.00
             months_added = dashboard.update_subscription(amount, monthly_price=500)
             
+            # Refresh after update_subscription
+            dashboard.refresh_from_db()
+            print(f"  - After update_subscription: months_added={months_added}, status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}")
+            
             # Ensure subscription is active and end_date is set (even if months_added is 0)
             if dashboard.subscription_status != 'active' or not dashboard.subscription_end_date:
+                print(f"  - Subscription still not active, forcing activation...")
                 dashboard.subscription_status = 'active'
                 if not dashboard.subscription_end_date:
                     dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30)
+                    print(f"  - Set end_date from null to: {dashboard.subscription_end_date}")
                 elif dashboard.subscription_end_date < timezone.now().date():
                     # If expired, extend from today
                     dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30)
+                    print(f"  - Extended expired end_date to: {dashboard.subscription_end_date}")
                 else:
                     # If active, extend from current end date
                     dashboard.subscription_end_date += timedelta(days=30)
+                    print(f"  - Extended active end_date to: {dashboard.subscription_end_date}")
             
             dashboard.is_verified = True
             dashboard.save()
-            print(f"Payment confirmed: {months_added} months added for user {user.username}. Subscription status: {dashboard.subscription_status}, End date: {dashboard.subscription_end_date}")
+            
+            # Final refresh to confirm save
+            dashboard.refresh_from_db()
+            print(f"  - FINAL: Payment confirmed for user {user.username}")
+            print(f"  - FINAL: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}, is_verified={dashboard.is_verified}")
         except Exception as e:
             print(f"Error updating subscription: {e}")
             import traceback
