@@ -91,7 +91,14 @@ class UserDashboard(models.Model):
         from django.utils import timezone
         from datetime import timedelta
         
+gi        print(f"update_subscription called: amount_paid={amount_paid}, monthly_price={monthly_price}")
+        print(f"  - Before update: status={self.subscription_status}, end_date={self.subscription_end_date}, total_paid={self.total_paid}, months_subscribed={self.months_subscribed}, is_verified={self.is_verified}")
+        
+        # Update total_paid
         self.total_paid += amount_paid
+        print(f"  - Updated total_paid: {self.total_paid}")
+        
+        # Calculate months
         months_to_add = int(amount_paid // monthly_price)
         
         # Always activate subscription when payment is received, even if amount is less than monthly_price
@@ -104,18 +111,27 @@ class UserDashboard(models.Model):
                 self.months_subscribed += 1
                 months_to_add = 1
             
+            print(f"  - Updated months_subscribed: {self.months_subscribed} (added {months_to_add} months)")
+            
+            # Set is_verified and subscription_status
             self.is_verified = True
             self.subscription_status = 'active'
+            print(f"  - Set is_verified=True, subscription_status='active'")
             
             # Always set or extend subscription end date
             if self.subscription_end_date and self.subscription_end_date > timezone.now().date():
                 # If subscription is still active, extend from current end date
                 self.subscription_end_date += timedelta(days=30 * months_to_add)
+                print(f"  - Extended end_date from {self.subscription_end_date - timedelta(days=30 * months_to_add)} to {self.subscription_end_date}")
             else:
                 # If subscription is expired or doesn't exist, set from today
                 self.subscription_end_date = timezone.now().date() + timedelta(days=30 * months_to_add)
+                print(f"  - Set end_date from null/expired to: {self.subscription_end_date}")
         
+        # Save the changes
         self.save()
+        print(f"  - Saved dashboard. After save: status={self.subscription_status}, end_date={self.subscription_end_date}, total_paid={self.total_paid}, months_subscribed={self.months_subscribed}, is_verified={self.is_verified}")
+        
         return months_to_add
 
     def __str__(self):
