@@ -91,7 +91,7 @@ class UserDashboard(models.Model):
         from django.utils import timezone
         from datetime import timedelta
         
-gi        print(f"update_subscription called: amount_paid={amount_paid}, monthly_price={monthly_price}")
+        print(f"update_subscription called: amount_paid={amount_paid}, monthly_price={monthly_price}")
         print(f"  - Before update: status={self.subscription_status}, end_date={self.subscription_end_date}, total_paid={self.total_paid}, months_subscribed={self.months_subscribed}, is_verified={self.is_verified}")
         
         # Update total_paid
