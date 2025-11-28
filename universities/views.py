@@ -347,81 +347,66 @@ class DashboardView(APIView):
                             print(f"  - Created payment record from draft tx_ref: {payment_to_use.tx_ref}")
                             break
         
-        # Always check if subscription needs updating when payment exists
+        # Check if payment exists and hasn't been processed yet
         if payment_to_use:
-            print(f"  - Payment found, checking if subscription needs update...")
+            print(f"  - Payment found: {payment_to_use.tx_ref}")
+            print(f"  - Payment subscription_updated: {payment_to_use.subscription_updated}")
             print(f"  - Subscription status: {dashboard.subscription_status}, End date: {dashboard.subscription_end_date}")
             
-        # Update subscription if payment exists AND subscription is not active
-        if payment_to_use and (dashboard.subscription_status != 'active' or not dashboard.subscription_end_date):
+        # Update subscription if payment exists AND hasn't been processed yet
+        if payment_to_use and not payment_to_use.subscription_updated:
             try:
                 # Refresh dashboard from DB to get latest state
                 dashboard.refresh_from_db()
                 print(f"  - Before update: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}")
                 
-                # Update ALL fields explicitly to ensure subscription is fully activated
+                # Use update_subscription method
                 amount = payment_to_use.amount
-                monthly_price = 500
+                months_added = dashboard.update_subscription(amount, monthly_price=500)
                 
-                # Update total_paid
-                dashboard.total_paid += amount
-                print(f"  - Updated total_paid: {dashboard.total_paid}")
+                # Mark payment as processed
+                payment_to_use.subscription_updated = True
+                payment_to_use.save()
+                print(f"  - Marked payment as processed (subscription_updated=True)")
                 
-                # Calculate months
-                months_to_add = int(amount // monthly_price)
-                if months_to_add == 0:
-                    months_to_add = 1  # At least 1 month for any payment
-                
-                # Update months_subscribed
-                dashboard.months_subscribed += months_to_add
-                print(f"  - Updated months_subscribed: {dashboard.months_subscribed} (added {months_to_add})")
-                
-                # Set subscription status to active
-                dashboard.subscription_status = 'active'
-                print(f"  - Set subscription_status to: active")
-                
-                # Set is_verified to True
-                dashboard.is_verified = True
-                print(f"  - Set is_verified to: True")
-                
-                # Set or extend subscription end date
-                if not dashboard.subscription_end_date:
-                    dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30 * months_to_add)
-                    print(f"  - Set end_date from null to: {dashboard.subscription_end_date}")
-                elif dashboard.subscription_end_date < timezone.now().date():
-                    # If expired, extend from today
-                    dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30 * months_to_add)
-                    print(f"  - Extended expired end_date to: {dashboard.subscription_end_date}")
-                else:
-                    # If active, extend from current end date
-                    dashboard.subscription_end_date += timedelta(days=30 * months_to_add)
-                    print(f"  - Extended active end_date to: {dashboard.subscription_end_date}")
-                
-                # Save all changes
-                dashboard.save()
-                print(f"  - Saved dashboard with all fields updated")
-                
-                # Final refresh to confirm
+                # Refresh to confirm
                 dashboard.refresh_from_db()
-                print(f"  - FINAL: Updated subscription for user {request.user.username} from payment {payment_to_use.tx_ref}")
-                print(f"  - FINAL: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}, is_verified={dashboard.is_verified}")
+                print(f"  - After update: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}")
+                print(f"  - After update: total_paid={dashboard.total_paid}, months_subscribed={dashboard.months_subscribed}, is_verified={dashboard.is_verified}")
+                
             except Exception as e:
                 print(f"  - ERROR updating subscription from existing payment: {e}")
                 import traceback
                 traceback.print_exc()
-                # Fallback - ensure ALL fields are set for subscription activation
-                amount = payment_to_use.amount if payment_to_use else 500.00
-                dashboard.total_paid += amount
+                
+                # Fallback - directly set fields
+                from decimal import Decimal
+                amount = Decimal(str(payment_to_use.amount)) if payment_to_use else Decimal('500.00')
+                dashboard.total_paid = Decimal(str(dashboard.total_paid)) + amount
                 dashboard.months_subscribed += 1
                 dashboard.subscription_status = 'active'
                 dashboard.is_verified = True
                 if not dashboard.subscription_end_date or dashboard.subscription_end_date < timezone.now().date():
                     dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30)
                 else:
-                    dashboard.subscription_end_date += timedelta(days=30)
+                    dashboard.subscription_end_date = dashboard.subscription_end_date + timedelta(days=30)
                 dashboard.save()
+                
+                # Mark payment as processed
+                payment_to_use.subscription_updated = True
+                payment_to_use.save()
+                
                 print(f"  - Used fallback to activate subscription for user {request.user.username}")
-                print(f"  - Fallback: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}, total_paid={dashboard.total_paid}, months_subscribed={dashboard.months_subscribed}, is_verified={dashboard.is_verified}")
+        
+        # If payment was already processed but subscription isn't active, fix it
+        elif payment_to_use and payment_to_use.subscription_updated and dashboard.subscription_status != 'active':
+            print(f"  - Payment already processed but subscription not active, fixing...")
+            dashboard.subscription_status = 'active'
+            dashboard.is_verified = True
+            if not dashboard.subscription_end_date:
+                dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30)
+            dashboard.save()
+            print(f"  - Fixed subscription status to active")
         
         serializer = UserDashboardSerializer(dashboard)
         response_data = serializer.data
@@ -846,39 +831,45 @@ class PaymentWebhookView(APIView):
             from payments.models import Payment
             existing_payment = Payment.objects.filter(tx_ref=tx_ref).first()
             if existing_payment:
-                print(f"Payment {tx_ref} already exists. Checking if subscription needs update...")
-                # Even if payment exists, ensure subscription is updated (in case it wasn't updated before)
+                print(f"Payment {tx_ref} already exists. subscription_updated={existing_payment.subscription_updated}")
                 dashboard, _ = UserDashboard.objects.get_or_create(user=user)
                 dashboard.refresh_from_db()
                 
-                # If subscription is not active, update it
-                if dashboard.subscription_status != 'active' or not dashboard.subscription_end_date or not dashboard.is_verified:
-                    print(f"  - Subscription not active for existing payment, updating...")
+                # Only update subscription if payment hasn't been processed yet
+                if not existing_payment.subscription_updated:
+                    print(f"  - Payment not processed yet, updating subscription...")
                     try:
-                        months_added = dashboard.update_subscription(500.00, monthly_price=500)
-                        dashboard.refresh_from_db()
+                        months_added = dashboard.update_subscription(existing_payment.amount, monthly_price=500)
                         
-                        # Force activation if still not active
-                        if dashboard.subscription_status != 'active' or not dashboard.subscription_end_date:
-                            dashboard.subscription_status = 'active'
-                            dashboard.is_verified = True
-                            if not dashboard.subscription_end_date:
-                                dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30)
-                            dashboard.save()
-                            print(f"  - Forced subscription activation for existing payment")
+                        # Mark payment as processed
+                        existing_payment.subscription_updated = True
+                        existing_payment.save()
+                        
+                        dashboard.refresh_from_db()
+                        print(f"  - Updated subscription: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}")
                     except Exception as e:
                         print(f"  - Error updating subscription for existing payment: {e}")
                         import traceback
                         traceback.print_exc()
+                elif dashboard.subscription_status != 'active':
+                    # Payment was processed but subscription not active - fix it
+                    dashboard.subscription_status = 'active'
+                    dashboard.is_verified = True
+                    if not dashboard.subscription_end_date:
+                        dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30)
+                    dashboard.save()
+                    print(f"  - Fixed subscription status to active")
                 
                 return Response({'status': 'already processed'}, status=status.HTTP_200_OK)
             
-            Payment.objects.create(
+            # Create payment with subscription_updated=True since we'll update it now
+            payment = Payment.objects.create(
                 user=user,
                 amount=500.00,
                 tx_ref=tx_ref,
                 status='success',
-                chapa_reference=webhook_data.get('reference', '')
+                chapa_reference=webhook_data.get('reference', ''),
+                subscription_updated=True  # Mark as processed immediately
             )
             
             # 5. Process payment and update subscription
@@ -887,60 +878,36 @@ class PaymentWebhookView(APIView):
             # Refresh dashboard to get latest state
             dashboard.refresh_from_db()
             print(f"Webhook processing payment for user {user.username} (ID: {user.id}):")
-            print(f"  - Before update: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}, total_paid={dashboard.total_paid}, months_subscribed={dashboard.months_subscribed}, is_verified={dashboard.is_verified}")
+            print(f"  - Before update: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}")
+            print(f"  - Before update: total_paid={dashboard.total_paid}, months_subscribed={dashboard.months_subscribed}, is_verified={dashboard.is_verified}")
             
-            # Process payment with new system
+            # Process payment with update_subscription
             try:
-                # update_subscription already handles total_paid, months_subscribed, subscription_status, subscription_end_date, and is_verified
                 months_added = dashboard.update_subscription(500.00, monthly_price=500)
                 
                 # Refresh after update_subscription to get latest state
                 dashboard.refresh_from_db()
-                print(f"  - After update_subscription: months_added={months_added}, status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}, total_paid={dashboard.total_paid}, months_subscribed={dashboard.months_subscribed}, is_verified={dashboard.is_verified}")
+                print(f"  - After update_subscription: months_added={months_added}")
+                print(f"  - Result: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}")
+                print(f"  - Result: total_paid={dashboard.total_paid}, months_subscribed={dashboard.months_subscribed}, is_verified={dashboard.is_verified}")
                 
-                # Double-check that ALL fields are set correctly (update_subscription should have done this, but verify)
-                if dashboard.subscription_status != 'active' or not dashboard.subscription_end_date or not dashboard.is_verified:
-                    print(f"  - WARNING: Subscription not fully activated after update_subscription, forcing activation...")
-                    
-                    # Force all fields to be set (update_subscription should have done this, but ensure it)
-                    dashboard.subscription_status = 'active'
-                    dashboard.is_verified = True
-                    
-                    # Ensure end_date is set
-                    if not dashboard.subscription_end_date:
-                        dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30 * max(months_added, 1))
-                        print(f"  - Set end_date from null to: {dashboard.subscription_end_date}")
-                    elif dashboard.subscription_end_date < timezone.now().date():
-                        dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30 * max(months_added, 1))
-                        print(f"  - Extended expired end_date to: {dashboard.subscription_end_date}")
-                    else:
-                        # If already active, extend from current end date
-                        dashboard.subscription_end_date += timedelta(days=30 * max(months_added, 1))
-                        print(f"  - Extended active end_date to: {dashboard.subscription_end_date}")
-                
-                # Save all changes
-                dashboard.save()
-                
-                # Final refresh to confirm
-                dashboard.refresh_from_db()
-                print(f"  - FINAL: Payment processed for user {user.username}")
-                print(f"  - FINAL: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}, total_paid={dashboard.total_paid}, months_subscribed={dashboard.months_subscribed}, is_verified={dashboard.is_verified}")
             except Exception as e:
                 print(f"Error updating subscription: {e}")
                 import traceback
                 traceback.print_exc()
-                # Fallback - ensure ALL fields are set for subscription activation
-                dashboard.total_paid += 500.00
+                
+                # Fallback - directly set fields
+                from decimal import Decimal
+                dashboard.total_paid = Decimal(str(dashboard.total_paid)) + Decimal('500.00')
                 dashboard.months_subscribed += 1
                 dashboard.subscription_status = 'active'
                 dashboard.is_verified = True
                 if not dashboard.subscription_end_date or dashboard.subscription_end_date < timezone.now().date():
                     dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30)
                 else:
-                    dashboard.subscription_end_date += timedelta(days=30)
+                    dashboard.subscription_end_date = dashboard.subscription_end_date + timedelta(days=30)
                 dashboard.save()
                 print(f"Used fallback to activate subscription for user {user.username}")
-                print(f"Fallback: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}, total_paid={dashboard.total_paid}, months_subscribed={dashboard.months_subscribed}, is_verified={dashboard.is_verified}")
 
             print(f"Successfully processed payment for user {user.id}. New expiry: {dashboard.subscription_end_date}")
             print(f"Payment recorded: {tx_ref} - 500 ETB")

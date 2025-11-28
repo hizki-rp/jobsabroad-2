@@ -80,6 +80,11 @@ def confirm_payment(request):
     draft_id = request.data.get('draft_id')
     email = request.data.get('email')
     
+    print(f"=== CONFIRM PAYMENT CALLED ===")
+    print(f"  tx_ref: {tx_ref}")
+    print(f"  draft_id: {draft_id}")
+    print(f"  email: {email}")
+    
     try:
         # Find the payment - check for any payment with this tx_ref first
         payment = Payment.objects.filter(tx_ref=tx_ref).first() if tx_ref else None
@@ -87,37 +92,57 @@ def confirm_payment(request):
         
         if payment:
             user = payment.user
+            print(f"Found existing payment for user: {user.username if user else 'None'}")
             # If payment exists but status is not 'success', update it
             if payment.status != 'success':
                 payment.status = 'success'
                 payment.save()
                 print(f"Updated payment {tx_ref} status to 'success' during confirmation")
         else:
-            # Payment doesn't exist - try to find user from draft_id or email
-            if draft_id:
+            print(f"No existing payment found for tx_ref: {tx_ref}")
+            
+            # FIRST: Try to extract user ID from tx_ref format: "unifinder-{user_id}-{uuid}"
+            if tx_ref and tx_ref.startswith('unifinder-'):
+                try:
+                    parts = tx_ref.split('-')
+                    if len(parts) >= 2:
+                        user_id = int(parts[1])
+                        user = User.objects.get(id=user_id)
+                        print(f"Extracted user {user.username} (ID: {user_id}) from tx_ref: {tx_ref}")
+                except (IndexError, ValueError, User.DoesNotExist) as e:
+                    print(f"Could not extract user from tx_ref: {tx_ref}, error: {e}")
+            
+            # SECOND: Try draft_id
+            if not user and draft_id:
                 from universities.models import ApplicationDraft
                 try:
                     draft = ApplicationDraft.objects.get(id=draft_id)
                     user = draft.user if hasattr(draft, 'user') else None
                     if not user:
                         user = User.objects.filter(email=draft.email).first()
+                    if user:
+                        print(f"Found user {user.username} from draft_id: {draft_id}")
                     if user and draft.payment_tx_ref and not tx_ref:
                         tx_ref = draft.payment_tx_ref
                         print(f"Using tx_ref from draft: {tx_ref}")
                 except Exception as e:
                     print(f"Error finding user from draft_id: {e}")
             
+            # THIRD: Try email
             if not user and email:
                 user = User.objects.filter(email=email).first()
-                if user and not tx_ref:
-                    # Generate a tx_ref for this payment
-                    import uuid
-                    tx_ref = f"payment_{user.id}_{uuid.uuid4().hex[:8]}"
-                    print(f"Generated tx_ref for user {user.email}: {tx_ref}")
+                if user:
+                    print(f"Found user {user.username} from email: {email}")
+                    if not tx_ref:
+                        # Generate a tx_ref for this payment
+                        import uuid
+                        tx_ref = f"payment_{user.id}_{uuid.uuid4().hex[:8]}"
+                        print(f"Generated tx_ref for user {user.email}: {tx_ref}")
             
             if not user:
+                print(f"ERROR: Could not identify user from tx_ref={tx_ref}, draft_id={draft_id}, email={email}")
                 return Response(
-                    {'error': 'Transaction reference (tx_ref) or user identification (draft_id/email) is required'},
+                    {'error': 'Could not identify user. Please try logging in first.'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
@@ -126,7 +151,7 @@ def confirm_payment(request):
                 import uuid
                 tx_ref = f"payment_{user.id}_{uuid.uuid4().hex[:8]}"
             
-            payment = Payment.objects.filter(user=user, tx_ref=tx_ref).first()
+            payment = Payment.objects.filter(tx_ref=tx_ref).first()
             if not payment:
                 payment = Payment.objects.create(
                     user=user,
@@ -136,93 +161,86 @@ def confirm_payment(request):
                     payment_date=timezone.now()
                 )
                 print(f"Created payment record {tx_ref} for user {user.username} during confirmation")
+            else:
+                # Payment exists but wasn't linked to user initially
+                if payment.status != 'success':
+                    payment.status = 'success'
+                    payment.save()
+                    print(f"Updated existing payment {tx_ref} to success")
         
-        # Ensure subscription is updated (in case webhook hasn't processed yet)
+        # Ensure subscription is updated (only if this payment hasn't been processed yet)
         from universities.models import UserDashboard
         from django.utils import timezone
         from datetime import timedelta
         
         dashboard, _ = UserDashboard.objects.get_or_create(user=user)
         
-        # Refresh dashboard to get latest state
+        # Refresh dashboard and payment to get latest state
         dashboard.refresh_from_db()
+        if payment:
+            payment.refresh_from_db()
+        
         print(f"Payment confirmation for user {user.username}:")
         print(f"  - Before update: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}")
         print(f"  - Payment amount: {payment.amount if payment else 500.00}")
+        print(f"  - Payment subscription_updated: {payment.subscription_updated if payment else 'N/A'}")
         
-        # Always update subscription when payment is confirmed
-        # Ensure both status and end_date are set
-        try:
-            amount = payment.amount if payment else 500.00
-            months_added = dashboard.update_subscription(amount, monthly_price=500)
-            
-            # Refresh after update_subscription
-            dashboard.refresh_from_db()
-            print(f"  - After update_subscription: months_added={months_added}, status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}")
-            
-            # Ensure ALL fields are set - subscription status, end_date, total_paid, months_subscribed, is_verified
-            if dashboard.subscription_status != 'active' or not dashboard.subscription_end_date:
-                print(f"  - Subscription still not active, forcing activation with ALL fields...")
+        # Only update subscription if this payment hasn't been processed yet
+        if payment and not payment.subscription_updated:
+            try:
+                amount = payment.amount
+                print(f"  Calling update_subscription with amount: {amount}")
                 
-                # Update total_paid if not already updated
-                if amount > 0:
-                    dashboard.total_paid += amount
-                    print(f"  - Updated total_paid: {dashboard.total_paid}")
+                months_added = dashboard.update_subscription(amount, monthly_price=500)
                 
-                # Update months_subscribed
-                months_to_add = int(amount // 500)
-                if months_to_add == 0:
-                    months_to_add = 1
-                dashboard.months_subscribed += months_to_add
-                print(f"  - Updated months_subscribed: {dashboard.months_subscribed}")
+                # Mark payment as processed
+                payment.subscription_updated = True
+                payment.save()
+                print(f"  Marked payment as processed (subscription_updated=True)")
                 
-                # Set subscription status
+                # Refresh after update_subscription
+                dashboard.refresh_from_db()
+                print(f"  After update_subscription: months_added={months_added}")
+                print(f"  Result: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}")
+                print(f"  Result: total_paid={dashboard.total_paid}, months_subscribed={dashboard.months_subscribed}, is_verified={dashboard.is_verified}")
+                
+            except Exception as e:
+                print(f"Error in update_subscription: {e}")
+                import traceback
+                traceback.print_exc()
+                
+                # Fallback - directly set all fields without calling update_subscription
+                from decimal import Decimal
+                amount = Decimal(str(payment.amount)) if payment else Decimal('500.00')
+                
+                dashboard.total_paid = Decimal(str(dashboard.total_paid)) + amount
+                dashboard.months_subscribed += 1
                 dashboard.subscription_status = 'active'
-                print(f"  - Set subscription_status to: active")
-                
-                # Set is_verified
                 dashboard.is_verified = True
-                print(f"  - Set is_verified to: True")
                 
-                # Set or extend end_date
-                if not dashboard.subscription_end_date:
-                    dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30 * months_to_add)
-                    print(f"  - Set end_date from null to: {dashboard.subscription_end_date}")
-                elif dashboard.subscription_end_date < timezone.now().date():
-                    # If expired, extend from today
-                    dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30 * months_to_add)
-                    print(f"  - Extended expired end_date to: {dashboard.subscription_end_date}")
+                if not dashboard.subscription_end_date or dashboard.subscription_end_date < timezone.now().date():
+                    dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30)
                 else:
-                    # If active, extend from current end date
-                    dashboard.subscription_end_date += timedelta(days=30 * months_to_add)
-                    print(f"  - Extended active end_date to: {dashboard.subscription_end_date}")
-            else:
-                # Even if already active, ensure is_verified is True
+                    dashboard.subscription_end_date = dashboard.subscription_end_date + timedelta(days=30)
+                
+                dashboard.save()
+                
+                # Mark payment as processed even in fallback
+                payment.subscription_updated = True
+                payment.save()
+                
+                print(f"Used fallback to activate subscription for user {user.username}")
+                print(f"Fallback result: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}")
+        else:
+            print(f"  Payment already processed (subscription_updated=True), skipping update")
+            # Ensure subscription is active anyway
+            if dashboard.subscription_status != 'active':
+                dashboard.subscription_status = 'active'
                 dashboard.is_verified = True
-            
-            dashboard.save()
-            
-            # Final refresh to confirm save
-            dashboard.refresh_from_db()
-            print(f"  - FINAL: Payment confirmed for user {user.username}")
-            print(f"  - FINAL: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}, is_verified={dashboard.is_verified}")
-        except Exception as e:
-            print(f"Error updating subscription: {e}")
-            import traceback
-            traceback.print_exc()
-            # Fallback - ensure ALL fields are set for subscription activation
-            amount = payment.amount if payment else 500.00
-            dashboard.total_paid += amount
-            dashboard.months_subscribed += 1
-            dashboard.subscription_status = 'active'
-            dashboard.is_verified = True
-            if not dashboard.subscription_end_date or dashboard.subscription_end_date < timezone.now().date():
-                dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30)
-            else:
-                dashboard.subscription_end_date += timedelta(days=30)
-            dashboard.save()
-            print(f"Used fallback to activate subscription for user {user.username}")
-            print(f"Fallback: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}, total_paid={dashboard.total_paid}, months_subscribed={dashboard.months_subscribed}, is_verified={dashboard.is_verified}")
+                if not dashboard.subscription_end_date:
+                    dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30)
+                dashboard.save()
+                print(f"  Fixed subscription status to active")
         
         # Ensure is_verified is set
         if not dashboard.is_verified:
