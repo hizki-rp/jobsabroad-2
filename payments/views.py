@@ -210,19 +210,19 @@ def confirm_payment(request):
             print(f"Error updating subscription: {e}")
             import traceback
             traceback.print_exc()
-                # Fallback - ensure ALL fields are set for subscription activation
-                amount = payment.amount if payment else 500.00
-                dashboard.total_paid += amount
-                dashboard.months_subscribed += 1
-                dashboard.subscription_status = 'active'
-                dashboard.is_verified = True
-                if not dashboard.subscription_end_date or dashboard.subscription_end_date < timezone.now().date():
-                    dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30)
-                else:
-                    dashboard.subscription_end_date += timedelta(days=30)
-                dashboard.save()
-                print(f"Used fallback to activate subscription for user {user.username}")
-                print(f"Fallback: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}, total_paid={dashboard.total_paid}, months_subscribed={dashboard.months_subscribed}, is_verified={dashboard.is_verified}")
+            # Fallback - ensure ALL fields are set for subscription activation
+            amount = payment.amount if payment else 500.00
+            dashboard.total_paid += amount
+            dashboard.months_subscribed += 1
+            dashboard.subscription_status = 'active'
+            dashboard.is_verified = True
+            if not dashboard.subscription_end_date or dashboard.subscription_end_date < timezone.now().date():
+                dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30)
+            else:
+                dashboard.subscription_end_date += timedelta(days=30)
+            dashboard.save()
+            print(f"Used fallback to activate subscription for user {user.username}")
+            print(f"Fallback: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}, total_paid={dashboard.total_paid}, months_subscribed={dashboard.months_subscribed}, is_verified={dashboard.is_verified}")
         
         # Ensure is_verified is set
         if not dashboard.is_verified:
