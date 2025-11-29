@@ -12,7 +12,7 @@ class HasActiveSubscription(BasePermission):
             return False
         
         # Superusers/staff should always have access for administrative purposes.
-        if request.user.is_staff:
+        if request.user.is_staff or request.user.is_superuser:
             return True
 
         try:

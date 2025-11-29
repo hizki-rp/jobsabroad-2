@@ -51,7 +51,7 @@ CSRF_TRUSTED_ORIGINS_str = os.environ.get('CSRF_TRUSTED_ORIGINS', 'https://jobsa
 CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in CSRF_TRUSTED_ORIGINS_str.split(',') if origin.strip()]
 
 # Ensure Render domain is always included in CSRF trusted origins
-if 'https://jobsabroad.onrender.com' not in CSRF_TRUSTED_ORIGINS:
+if 'https://jobsabroad-2.onrender.com' not in CSRF_TRUSTED_ORIGINS:
     CSRF_TRUSTED_ORIGINS.append('https://jobsabroad.onrender.com')
 
 # Trust the 'X-Forwarded-Proto' header from the reverse proxy (like Render)
@@ -67,7 +67,7 @@ if not DEBUG:
 # allow frontend to access backend
 # Get CORS origins from environment variable, fallback to defaults
 CORS_ORIGINS_STR = os.environ.get('CORS_ALLOWED_ORIGINS', 
-    'http://localhost:5174,http://localhost:5173,http://localhost:4173,https://jobsabroad.onrender.com')
+    'http://localhost:5174,http://localhost:5173,http://localhost:4173,https://jobsabroad-2.onrender.com')
 CORS_ALLOWED_ORIGINS = [origin.strip() for origin in CORS_ORIGINS_STR.split(',') if origin.strip()]
 
 # For development/production, allow all origins if set in environment

@@ -172,6 +172,7 @@ def confirm_payment(request):
         from universities.models import UserDashboard
         from django.utils import timezone
         from datetime import timedelta
+        from decimal import Decimal
         
         dashboard, _ = UserDashboard.objects.get_or_create(user=user)
         
@@ -187,50 +188,32 @@ def confirm_payment(request):
         
         # Only update subscription if this payment hasn't been processed yet
         if payment and not payment.subscription_updated:
-            try:
-                amount = payment.amount
-                print(f"  Calling update_subscription with amount: {amount}")
-                
-                months_added = dashboard.update_subscription(amount, monthly_price=500)
-                
-                # Mark payment as processed
-                payment.subscription_updated = True
-                payment.save()
-                print(f"  Marked payment as processed (subscription_updated=True)")
-                
-                # Refresh after update_subscription
-                dashboard.refresh_from_db()
-                print(f"  After update_subscription: months_added={months_added}")
-                print(f"  Result: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}")
-                print(f"  Result: total_paid={dashboard.total_paid}, months_subscribed={dashboard.months_subscribed}, is_verified={dashboard.is_verified}")
-                
-            except Exception as e:
-                print(f"Error in update_subscription: {e}")
-                import traceback
-                traceback.print_exc()
-                
-                # Fallback - directly set all fields without calling update_subscription
-                from decimal import Decimal
-                amount = Decimal(str(payment.amount)) if payment else Decimal('500.00')
-                
-                dashboard.total_paid = Decimal(str(dashboard.total_paid)) + amount
-                dashboard.months_subscribed += 1
-                dashboard.subscription_status = 'active'
-                dashboard.is_verified = True
-                
-                if not dashboard.subscription_end_date or dashboard.subscription_end_date < timezone.now().date():
-                    dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30)
-                else:
-                    dashboard.subscription_end_date = dashboard.subscription_end_date + timedelta(days=30)
-                
-                dashboard.save()
-                
-                # Mark payment as processed even in fallback
-                payment.subscription_updated = True
-                payment.save()
-                
-                print(f"Used fallback to activate subscription for user {user.username}")
-                print(f"Fallback result: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}")
+            # Use direct field updates instead of update_subscription to avoid potential issues
+            amount = Decimal(str(payment.amount))
+            print(f"  Updating subscription with amount: {amount}")
+            
+            # Update subscription fields directly
+            dashboard.total_paid = Decimal(str(dashboard.total_paid)) + amount
+            dashboard.months_subscribed += 1
+            dashboard.subscription_status = 'active'
+            dashboard.is_verified = True
+            
+            # Calculate new end date
+            if not dashboard.subscription_end_date or dashboard.subscription_end_date < timezone.now().date():
+                dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30)
+            else:
+                dashboard.subscription_end_date = dashboard.subscription_end_date + timedelta(days=30)
+            
+            # Save dashboard
+            dashboard.save()
+            
+            # Mark payment as processed
+            payment.subscription_updated = True
+            payment.save()
+            
+            print(f"  Subscription activated for user {user.username}")
+            print(f"  Result: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}")
+            print(f"  Result: total_paid={dashboard.total_paid}, months_subscribed={dashboard.months_subscribed}, is_verified={dashboard.is_verified}")
         else:
             print(f"  Payment already processed (subscription_updated=True), skipping update")
             # Ensure subscription is active anyway
