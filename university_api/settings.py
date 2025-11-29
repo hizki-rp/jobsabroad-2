@@ -39,7 +39,7 @@ SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-yt)2uovn6ck=nwxdrvh#^
 DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
 
 # Use environment variables for allowed hosts
-ALLOWED_HOSTS_str = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,jobsabroad.onrender.com')
+ALLOWED_HOSTS_str = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,jobsabroad-2.onrender.com')
 ALLOWED_HOSTS = [host.strip() for host in ALLOWED_HOSTS_str.split(',')]
 
 # Ensure Render domain is always included
