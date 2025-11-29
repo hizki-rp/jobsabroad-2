@@ -255,8 +255,187 @@ class DashboardView(APIView):
     def get(self, request):
         # get_or_create ensures a dashboard exists if the signal failed for some reason
         dashboard, created = UserDashboard.objects.get_or_create(user=request.user)
+        
+        # Check if user has successful payments but subscription isn't active
+        # This can happen if payment was processed but subscription wasn't updated
+        from payments.models import Payment
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        # Check for successful payments - check all time, not just recent
+        successful_payments = Payment.objects.filter(
+            user=request.user,
+            status='success'
+        ).order_by('-payment_date')
+        
+        # Also check for ANY payments (regardless of status) within last 48 hours
+        # This handles cases where webhook hasn't processed yet or payment status wasn't set
+        recent_payments = Payment.objects.filter(
+            user=request.user,
+            payment_date__gte=timezone.now() - timedelta(hours=48)
+        ).order_by('-payment_date')
+        
+        # Also check for payments by user email (in case payment was created with email but user wasn't linked)
+        # This is a fallback for edge cases
+        if not successful_payments.exists() and not recent_payments.exists():
+            # Try to find payments by matching email in tx_ref or other fields
+            user_email_payments = Payment.objects.filter(
+                payment_date__gte=timezone.now() - timedelta(hours=48)
+            )
+            # Check if any payment's user email matches
+            for p in user_email_payments:
+                if p.user and p.user.email == request.user.email:
+                    recent_payments = Payment.objects.filter(id=p.id)
+                    break
+        
+        print(f"Dashboard check for user {request.user.username} (ID: {request.user.id}, Email: {request.user.email}):")
+        print(f"  - Successful payments: {successful_payments.count()}")
+        print(f"  - Recent payments (48h): {recent_payments.count()}")
+        print(f"  - Current subscription_status: {dashboard.subscription_status}")
+        print(f"  - Current subscription_end_date: {dashboard.subscription_end_date}")
+        print(f"  - Current total_paid: {dashboard.total_paid}")
+        print(f"  - Current months_subscribed: {dashboard.months_subscribed}")
+        print(f"  - Current is_verified: {dashboard.is_verified}")
+        
+        # If user has successful payments but subscription isn't active, update it
+        payment_to_use = None
+        if successful_payments.exists():
+            payment_to_use = successful_payments.first()
+            print(f"  - Using successful payment: {payment_to_use.tx_ref}, amount: {payment_to_use.amount}, date: {payment_to_use.payment_date}")
+        elif recent_payments.exists():
+            # If no successful payments but recent payment exists, check if we should update
+            # This handles edge cases where payment was just made
+            payment_to_use = recent_payments.first()
+            print(f"  - Found recent payment: {payment_to_use.tx_ref}, status: {payment_to_use.status}, amount: {payment_to_use.amount}, date: {payment_to_use.payment_date}")
+            # Update if payment is recent (within last 48 hours) - more lenient to catch delayed webhooks
+            if payment_to_use and (timezone.now() - payment_to_use.payment_date).total_seconds() < 172800:  # 48 hours
+                # Mark payment as success if it's recent (webhook might be delayed)
+                if payment_to_use.status != 'success':
+                    payment_to_use.status = 'success'
+                    payment_to_use.save()
+                    print(f"  - Marked recent payment {payment_to_use.tx_ref} as success for user {request.user.username}")
+        
+        # If no payment found but subscription is 'none' and user just logged in, check ApplicationDraft for payment info
+        if not payment_to_use and dashboard.subscription_status == 'none':
+            from universities.models import ApplicationDraft
+            # Check for recent drafts that might indicate payment was made
+            recent_drafts = ApplicationDraft.objects.filter(
+                email=request.user.email
+            ).order_by('-created_at')[:5]
+            
+            if recent_drafts.exists():
+                print(f"  - Found {recent_drafts.count()} recent application drafts for user")
+                # If user has a draft with payment_tx_ref, payment might have been processed
+                for draft in recent_drafts:
+                    if draft.payment_tx_ref:
+                        # Try to find payment by tx_ref
+                        from payments.models import Payment
+                        payment_by_ref = Payment.objects.filter(tx_ref=draft.payment_tx_ref).first()
+                        if payment_by_ref:
+                            payment_to_use = payment_by_ref
+                            print(f"  - Found payment via draft tx_ref: {payment_to_use.tx_ref}")
+                            break
+                        else:
+                            # Payment doesn't exist but draft has tx_ref - create payment record
+                            payment_to_use = Payment.objects.create(
+                                user=request.user,
+                                amount=500.00,
+                                tx_ref=draft.payment_tx_ref,
+                                status='success',
+                                payment_date=timezone.now()
+                            )
+                            print(f"  - Created payment record from draft tx_ref: {payment_to_use.tx_ref}")
+                            break
+        
+        # Check if payment exists and hasn't been processed yet
+        if payment_to_use:
+            print(f"  - Payment found: {payment_to_use.tx_ref}")
+            print(f"  - Payment subscription_updated: {payment_to_use.subscription_updated}")
+            print(f"  - Subscription status: {dashboard.subscription_status}, End date: {dashboard.subscription_end_date}")
+            
+        # Update subscription if payment exists AND hasn't been processed yet
+        if payment_to_use and not payment_to_use.subscription_updated:
+            try:
+                # Refresh dashboard from DB to get latest state
+                dashboard.refresh_from_db()
+                print(f"  - Before update: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}")
+                
+                # Use update_subscription method
+                amount = payment_to_use.amount
+                months_added = dashboard.update_subscription(amount, monthly_price=500)
+                
+                # Mark payment as processed
+                payment_to_use.subscription_updated = True
+                payment_to_use.save()
+                print(f"  - Marked payment as processed (subscription_updated=True)")
+                
+                # Refresh to confirm
+                dashboard.refresh_from_db()
+                print(f"  - After update: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}")
+                print(f"  - After update: total_paid={dashboard.total_paid}, months_subscribed={dashboard.months_subscribed}, is_verified={dashboard.is_verified}")
+                
+            except Exception as e:
+                print(f"  - ERROR updating subscription from existing payment: {e}")
+                import traceback
+                traceback.print_exc()
+                
+                # Fallback - directly set fields
+                from decimal import Decimal
+                amount = Decimal(str(payment_to_use.amount)) if payment_to_use else Decimal('500.00')
+                dashboard.total_paid = Decimal(str(dashboard.total_paid)) + amount
+                dashboard.months_subscribed += 1
+                dashboard.subscription_status = 'active'
+                dashboard.is_verified = True
+                if not dashboard.subscription_end_date or dashboard.subscription_end_date < timezone.now().date():
+                    dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30)
+                else:
+                    dashboard.subscription_end_date = dashboard.subscription_end_date + timedelta(days=30)
+                dashboard.save()
+                
+                # Mark payment as processed
+                payment_to_use.subscription_updated = True
+                payment_to_use.save()
+                
+                print(f"  - Used fallback to activate subscription for user {request.user.username}")
+        
+        # If payment was already processed but subscription isn't active, fix it
+        elif payment_to_use and payment_to_use.subscription_updated and dashboard.subscription_status != 'active':
+            print(f"  - Payment already processed but subscription not active, fixing...")
+            dashboard.subscription_status = 'active'
+            dashboard.is_verified = True
+            if not dashboard.subscription_end_date:
+                dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30)
+            dashboard.save()
+            print(f"  - Fixed subscription status to active")
+        
         serializer = UserDashboardSerializer(dashboard)
-        return Response(serializer.data)
+        response_data = serializer.data
+        
+        # Get user's profile country
+        user_country = None
+        try:
+            if hasattr(request.user, 'profile') and request.user.profile.country:
+                user_country = request.user.profile.country
+        except Exception:
+            pass
+        
+        # Get job sites filtered by user's country
+        job_sites = []
+        if user_country:
+            # Try exact match first, then case-insensitive contains
+            job_sites = CountryJobSite.objects.filter(
+                country__iexact=user_country
+            ).values('id', 'country', 'site_name', 'site_url')
+            if not job_sites.exists():
+                # Fallback to case-insensitive contains
+                job_sites = CountryJobSite.objects.filter(
+                    country__icontains=user_country
+                ).values('id', 'country', 'site_name', 'site_url')
+        
+        response_data['country'] = user_country
+        response_data['job_sites'] = list(job_sites)
+        
+        return Response(response_data)
 
     def post(self, request):
         dashboard, created = UserDashboard.objects.get_or_create(user=request.user)
@@ -614,50 +793,176 @@ class PaymentWebhookView(APIView):
         # 2. Check if the transaction was successful from the webhook payload.
         # This is safe because we have already verified the signature.
         if webhook_data.get("status") == "success":
-            # 3. Process the payment - simple user lookup
+            # 3. Process the payment
+            user = None
             try:
                 # tx_ref format: "unifinder-{user.id}-{uuid}"
-                user_id = int(tx_ref.split('-')[1])
-                user = User.objects.get(id=user_id)
-            except (IndexError, ValueError, User.DoesNotExist):
-                print(f"Could not find user from tx_ref: {tx_ref}")
-                return Response({'status': 'error', 'message': 'Invalid transaction reference format.'}, status=status.HTTP_400_BAD_REQUEST)
+                parts = tx_ref.split('-')
+                if len(parts) >= 2 and parts[0] == 'unifinder':
+                    user_id = int(parts[1])
+                    user = User.objects.get(id=user_id)
+                    print(f"Found user {user.username} (ID: {user_id}) from tx_ref: {tx_ref}")
+                else:
+                    print(f"tx_ref format doesn't match expected pattern: {tx_ref}")
+                    # Try to find user by email from webhook data
+                    email = webhook_data.get('email')
+                    if email:
+                        user = User.objects.filter(email=email).first()
+                        if user:
+                            print(f"Found user {user.username} by email: {email}")
+            except (IndexError, ValueError, User.DoesNotExist) as e:
+                print(f"Could not find user from tx_ref: {tx_ref}, error: {e}")
+                # Try to find user by email from webhook data as fallback
+                email = webhook_data.get('email')
+                if email:
+                    user = User.objects.filter(email=email).first()
+                    if user:
+                        print(f"Found user {user.username} by email fallback: {email}")
+                    else:
+                        print(f"Could not find user by email either: {email}")
+                        return Response({'status': 'error', 'message': 'User not found for this transaction.'}, status=status.HTTP_400_BAD_REQUEST)
+                else:
+                    return Response({'status': 'error', 'message': 'Invalid transaction reference format and no email provided.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            if not user:
+                return Response({'status': 'error', 'message': 'User not found for this transaction.'}, status=status.HTTP_400_BAD_REQUEST)
 
             # 4. Check for duplicate payment and record if new
             from payments.models import Payment
             existing_payment = Payment.objects.filter(tx_ref=tx_ref).first()
             if existing_payment:
-                print(f"Payment {tx_ref} already processed. Skipping.")
+                print(f"Payment {tx_ref} already exists. subscription_updated={existing_payment.subscription_updated}")
+                dashboard, _ = UserDashboard.objects.get_or_create(user=user)
+                dashboard.refresh_from_db()
+                
+                # Only update subscription if payment hasn't been processed yet
+                if not existing_payment.subscription_updated:
+                    print(f"  - Payment not processed yet, updating subscription...")
+                    try:
+                        months_added = dashboard.update_subscription(existing_payment.amount, monthly_price=500)
+                        
+                        # Mark payment as processed
+                        existing_payment.subscription_updated = True
+                        existing_payment.save()
+                        
+                        dashboard.refresh_from_db()
+                        print(f"  - Updated subscription: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}")
+                    except Exception as e:
+                        print(f"  - Error updating subscription for existing payment: {e}")
+                        import traceback
+                        traceback.print_exc()
+                elif dashboard.subscription_status != 'active':
+                    # Payment was processed but subscription not active - fix it
+                    dashboard.subscription_status = 'active'
+                    dashboard.is_verified = True
+                    if not dashboard.subscription_end_date:
+                        dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30)
+                    dashboard.save()
+                    print(f"  - Fixed subscription status to active")
+                
                 return Response({'status': 'already processed'}, status=status.HTTP_200_OK)
             
-            Payment.objects.create(
+            # Create payment with subscription_updated=True since we'll update it now
+            payment = Payment.objects.create(
                 user=user,
                 amount=500.00,
                 tx_ref=tx_ref,
                 status='success',
-                chapa_reference=webhook_data.get('reference', '')
+                chapa_reference=webhook_data.get('reference', ''),
+                subscription_updated=True  # Mark as processed immediately
             )
             
             # 5. Process payment and update subscription
             dashboard, _ = UserDashboard.objects.get_or_create(user=user)
             
+            # Refresh dashboard to get latest state
+            dashboard.refresh_from_db()
+            print(f"Webhook processing payment for user {user.username} (ID: {user.id}):")
+            print(f"  - Before update: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}")
+            print(f"  - Before update: total_paid={dashboard.total_paid}, months_subscribed={dashboard.months_subscribed}, is_verified={dashboard.is_verified}")
+            
             # Process payment with update_subscription
             try:
                 months_added = dashboard.update_subscription(500.00, monthly_price=500)
-                print(f"Payment processed: {months_added} months added for user {user.username}")
+                
+                # Refresh after update_subscription to get latest state
+                dashboard.refresh_from_db()
+                print(f"  - After update_subscription: months_added={months_added}")
+                print(f"  - Result: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}")
+                print(f"  - Result: total_paid={dashboard.total_paid}, months_subscribed={dashboard.months_subscribed}, is_verified={dashboard.is_verified}")
+                
             except Exception as e:
                 print(f"Error updating subscription: {e}")
-                # Fallback to direct update
+                import traceback
+                traceback.print_exc()
+                
+                # Fallback - directly set fields
+                from decimal import Decimal
+                dashboard.total_paid = Decimal(str(dashboard.total_paid)) + Decimal('500.00')
+                dashboard.months_subscribed += 1
                 dashboard.subscription_status = 'active'
-                dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30)
                 dashboard.is_verified = True
+                if not dashboard.subscription_end_date or dashboard.subscription_end_date < timezone.now().date():
+                    dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30)
+                else:
+                    dashboard.subscription_end_date = dashboard.subscription_end_date + timedelta(days=30)
                 dashboard.save()
+                print(f"Used fallback to activate subscription for user {user.username}")
 
             print(f"Successfully processed payment for user {user.id}. New expiry: {dashboard.subscription_end_date}")
             print(f"Payment recorded: {tx_ref} - 500 ETB")
-            
-            # 6. Acknowledge receipt to Chapa
-            return Response({'status': 'success'}, status=status.HTTP_200_OK)
+
+            # 6. Conditional account creation & token generation based on ApplicationDraft
+            try:
+                draft = ApplicationDraft.objects.filter(payment_tx_ref=tx_ref).order_by('-created_at').first()
+                if not draft:
+                    draft = ApplicationDraft.objects.filter(email=user.email).order_by('-created_at').first()
+            except Exception:
+                draft = None
+
+            if draft:
+                # Create missing user by email if different flow sends webhook before explicit user exists
+                UserModel = get_user_model()
+                target_email = draft.email or user.email
+                try:
+                    target_user = UserModel.objects.get(email__iexact=target_email)
+                except UserModel.DoesNotExist:
+                    username_base = (target_email.split('@')[0] or f"user{user.id}")[:150]
+                    username = username_base
+                    i = 1
+                    while UserModel.objects.filter(username__iexact=username).exists():
+                        username = f"{username_base}{i}"
+                        i += 1
+                    temp_password = get_random_string(12)
+                    target_user = UserModel.objects.create_user(
+                        username=username,
+                        email=target_email,
+                        password=temp_password,
+                        first_name=(draft.full_name or '').split(' ')[0][:150],
+                        last_name=' '.join((draft.full_name or '').split(' ')[1:])[:150]
+                    )
+                    # Email the temporary password - DISABLED for performance
+                    # Email sending disabled for now
+                    # try:
+                    #     send_mail(
+                    #         subject="Your UNI-FINDER account",
+                    #         message=f"Your account has been created. Temporary password: {temp_password}. Please log in and change it.",
+                    #         from_email=settings.DEFAULT_FROM_EMAIL,
+                    #         recipient_list=[target_email],
+                    #         fail_silently=True
+                    #     )
+                    # except Exception:
+                    #     pass
+                # Generate JWT tokens for auto-login
+                refresh = RefreshToken.for_user(target_user)
+                auth_payload = {"refresh": str(refresh), "access": str(refresh.access_token)}
+            else:
+                # fallback to the payment user
+                refresh = RefreshToken.for_user(user)
+                auth_payload = {"refresh": str(refresh), "access": str(refresh.access_token)}
+
+            # 5. Acknowledge receipt to Chapa with auth token hint
+            return Response({'status': 'success', 'auth': auth_payload}, status=status.HTTP_200_OK)
         else:
             print(f"Webhook for tx_ref {tx_ref} was not successful. Status: {webhook_data.get('status')}")
             # Acknowledge receipt, but don't process.
