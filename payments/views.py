@@ -86,6 +86,29 @@ def confirm_payment(request):
     print(f"  email: {email}")
     
     try:
+        # Verify payment with Chapa API if tx_ref is provided
+        payment_verified = False
+        if tx_ref:
+            import os
+            import requests
+            chapa_secret_key = os.environ.get("CHAPA_SECRET_KEY")
+            if chapa_secret_key:
+                try:
+                    verify_url = f"https://api.chapa.co/v1/transaction/verify/{tx_ref}"
+                    headers = {"Authorization": f"Bearer {chapa_secret_key}"}
+                    verify_response = requests.get(verify_url, headers=headers)
+                    verify_data = verify_response.json()
+                    
+                    print(f"  Chapa verification response: {verify_data}")
+                    
+                    if verify_data.get('status') == 'success' and verify_data.get('data', {}).get('status') == 'success':
+                        payment_verified = True
+                        print(f"  ✅ Payment verified with Chapa API")
+                    else:
+                        print(f"  ⚠️ Payment not verified: {verify_data.get('message', 'Unknown error')}")
+                except Exception as e:
+                    print(f"  ⚠️ Error verifying payment with Chapa: {e}")
+        
         # Find the payment - check for any payment with this tx_ref first
         payment = Payment.objects.filter(tx_ref=tx_ref).first() if tx_ref else None
         user = None
@@ -143,6 +166,14 @@ def confirm_payment(request):
                 print(f"ERROR: Could not identify user from tx_ref={tx_ref}, draft_id={draft_id}, email={email}")
                 return Response(
                     {'error': 'Could not identify user. Please try logging in first.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Only create/update payment if verified with Chapa
+            if not payment_verified:
+                print(f"  ❌ Cannot create payment - not verified with Chapa")
+                return Response(
+                    {'error': 'Payment could not be verified. Please contact support.'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
@@ -254,6 +285,105 @@ def confirm_payment(request):
             {'error': f'Error confirming payment: {str(e)}'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def verify_and_update_subscription(request):
+    """Manually verify payment with Chapa and update subscription"""
+    tx_ref = request.data.get('tx_ref')
+    
+    if not tx_ref:
+        return Response({'error': 'tx_ref is required'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    import os
+    import requests
+    from universities.models import UserDashboard
+    from datetime import timedelta
+    from decimal import Decimal
+    
+    chapa_secret_key = os.environ.get("CHAPA_SECRET_KEY")
+    if not chapa_secret_key:
+        return Response({'error': 'Chapa secret key not configured'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    try:
+        # Verify with Chapa
+        verify_url = f"https://api.chapa.co/v1/transaction/verify/{tx_ref}"
+        headers = {"Authorization": f"Bearer {chapa_secret_key}"}
+        verify_response = requests.get(verify_url, headers=headers)
+        verify_data = verify_response.json()
+        
+        print(f"Manual verification for {tx_ref}: {verify_data}")
+        
+        if verify_data.get('status') != 'success' or verify_data.get('data', {}).get('status') != 'success':
+            return Response({
+                'error': 'Payment not successful',
+                'chapa_response': verify_data
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Extract user from tx_ref
+        user = None
+        if tx_ref.startswith('unifinder-'):
+            parts = tx_ref.split('-')
+            if len(parts) >= 2:
+                user_id = int(parts[1])
+                user = User.objects.get(id=user_id)
+        
+        if not user:
+            return Response({'error': 'Could not identify user from tx_ref'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get or create payment record
+        payment, created = Payment.objects.get_or_create(
+            tx_ref=tx_ref,
+            defaults={
+                'user': user,
+                'amount': 500.00,
+                'status': 'success',
+                'payment_date': timezone.now()
+            }
+        )
+        
+        if not created and payment.status != 'success':
+            payment.status = 'success'
+            payment.save()
+        
+        # Update subscription
+        dashboard, _ = UserDashboard.objects.get_or_create(user=user)
+        
+        if not payment.subscription_updated:
+            dashboard.total_paid = Decimal(str(dashboard.total_paid)) + Decimal('500.00')
+            dashboard.months_subscribed += 1
+            dashboard.subscription_status = 'active'
+            dashboard.is_verified = True
+            
+            if not dashboard.subscription_end_date or dashboard.subscription_end_date < timezone.now().date():
+                dashboard.subscription_end_date = timezone.now().date() + timedelta(days=30)
+            else:
+                dashboard.subscription_end_date = dashboard.subscription_end_date + timedelta(days=30)
+            
+            dashboard.save()
+            
+            payment.subscription_updated = True
+            payment.save()
+            
+            return Response({
+                'status': 'success',
+                'message': 'Subscription updated',
+                'subscription_status': dashboard.subscription_status,
+                'subscription_end_date': dashboard.subscription_end_date
+            })
+        else:
+            return Response({
+                'status': 'already_processed',
+                'message': 'Payment already processed',
+                'subscription_status': dashboard.subscription_status,
+                'subscription_end_date': dashboard.subscription_end_date
+            })
+            
+    except Exception as e:
+        print(f"Error in verify_and_update_subscription: {e}")
+        import traceback
+        traceback.print_exc()
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['GET'])
 @permission_classes([IsAdminUser])
