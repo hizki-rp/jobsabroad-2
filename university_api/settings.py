@@ -47,7 +47,7 @@ if 'jobsabroad.onrender.com' not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append('jobsabroad.onrender.com')
 
 # CSRF trusted origins - required for HTTPS admin access
-CSRF_TRUSTED_ORIGINS_str = os.environ.get('CSRF_TRUSTED_ORIGINS', 'https://jobsabroad.onrender.com')
+CSRF_TRUSTED_ORIGINS_str = os.environ.get('CSRF_TRUSTED_ORIGINS', 'https://jobsabroad-2.onrender.com')
 CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in CSRF_TRUSTED_ORIGINS_str.split(',') if origin.strip()]
 
 # Ensure Render domain is always included in CSRF trusted origins
