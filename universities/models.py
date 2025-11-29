@@ -46,6 +46,19 @@ class CountryJobSite(models.Model):
     def __str__(self):
         return f"{self.country} - {self.site_name}"
 
+class CountryJobSiteJSONImport(models.Model):
+    """
+    A model to facilitate importing CountryJobSite data via JSON in the Django admin.
+    Each instance represents a single import action, storing the raw JSON.
+    """
+    json_data = models.TextField(help_text="Paste a JSON array of job sites here. Each object should have: country, site_name, site_url")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Country Job Site JSON Import"
+        verbose_name_plural = "Country Job Site JSON Imports"
+        ordering = ['-created_at']
+
 class University(models.Model):
     name = models.CharField(max_length=200)
     country = models.CharField(max_length=100)

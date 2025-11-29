@@ -1,0 +1,118 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block title %}Bulk Import Country Job Sites{% endblock %}
+
+{% block extrastyle %}
+<style>
+  .form-row {
+    margin-bottom: 20px;
+  }
+  .help-text {
+    color: #666;
+    font-size: 13px;
+    margin-top: 5px;
+  }
+  .example-json {
+    background: #f8f8f8;
+    border: 1px solid #ddd;
+    padding: 15px;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+    margin-top: 10px;
+  }
+  textarea {
+    font-family: monospace;
+    font-size: 13px;
+  }
+</style>
+{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">Home</a>
+  &rsaquo; <a href="{% url 'admin:universities_countryjobsite_changelist' %}">Country job sites</a>
+  &rsaquo; Bulk Import
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+  <h1>Bulk Import Country Job Sites from JSON</h1>
+  
+  <form method="post">
+    {% csrf_token %}
+    
+    <div class="form-row">
+      <div>
+        <label for="json_data">JSON Data:</label>
+        <p class="help-text">
+          Paste your JSON array here. Each object should have: <code>country</code>, <code>site_name</code>, and <code>site_url</code>
+        </p>
+        <textarea 
+          name="json_data" 
+          id="json_data" 
+          rows="20" 
+          cols="100" 
+          style="width: 100%; max-width: 900px;"
+          placeholder='[
+  {
+    "country": "Germany",
+    "site_name": "Indeed Germany",
+    "site_url": "https://de.indeed.com"
+  },
+  {
+    "country": "France",
+    "site_name": "Indeed France",
+    "site_url": "https://fr.indeed.com"
+  }
+]'
+        ></textarea>
+      </div>
+    </div>
+    
+    <div class="form-row">
+      <h3>Example JSON Format:</h3>
+      <div class="example-json">[
+  {
+    "country": "Germany",
+    "site_name": "Indeed Germany",
+    "site_url": "https://de.indeed.com"
+  },
+  {
+    "country": "Germany",
+    "site_name": "StepStone Germany",
+    "site_url": "https://www.stepstone.de"
+  },
+  {
+    "country": "France",
+    "site_name": "Indeed France",
+    "site_url": "https://fr.indeed.com"
+  },
+  {
+    "country": "Netherlands",
+    "site_name": "Indeed Netherlands",
+    "site_url": "https://nl.indeed.com"
+  }
+]</div>
+    </div>
+    
+    <div class="submit-row">
+      <input type="submit" value="Import" class="default" />
+      <a href="{% url 'admin:universities_countryjobsite_changelist' %}" class="button cancel-link">Cancel</a>
+    </div>
+  </form>
+  
+  <div style="margin-top: 30px; padding: 15px; background: #e8f4f8; border-left: 4px solid #2196F3;">
+    <h3 style="margin-top: 0;">Notes:</h3>
+    <ul>
+      <li>If a job site with the same country and site_name already exists, it will be updated with the new URL</li>
+      <li>All three fields (country, site_name, site_url) are required</li>
+      <li>The JSON must be a valid array of objects</li>
+      <li>You can import multiple sites at once</li>
+    </ul>
+  </div>
+</div>
+{% endblock %}

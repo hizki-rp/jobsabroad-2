@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib import messages
 from django.utils.html import format_html
 from django.db import transaction
-from .models import University, UserDashboard, UniversityJSONImport, ScholarshipResult, CountryJobSite
+from .models import University, UserDashboard, UniversityJSONImport, ScholarshipResult, CountryJobSite, CountryJobSiteJSONImport
 from .serializers import UniversitySerializer
 from .scholarship_service import ScholarshipOwlService
 import json
@@ -211,3 +211,72 @@ class CountryJobSiteAdmin(admin.ModelAdmin):
     list_filter = ("country",)
     search_fields = ("country", "site_name", "site_url")
     ordering = ("country", "site_name")
+
+@admin.register(CountryJobSiteJSONImport)
+class CountryJobSiteJSONImportAdmin(admin.ModelAdmin):
+    """
+    Custom admin view to allow creating country job sites by pasting JSON data.
+    """
+    list_display = ("id", "created_at")
+    readonly_fields = ("created_at",)
+    
+    def save_model(self, request, obj, form, change):
+        import json
+        from django.contrib import messages
+        
+        # First save the import record
+        super().save_model(request, obj, form, change)
+        
+        # Then process the JSON
+        try:
+            data = json.loads(obj.json_data)
+            
+            # Ensure data is a list
+            if not isinstance(data, list):
+                messages.error(request, "JSON must be an array of objects")
+                return
+            
+            created_count = 0
+            updated_count = 0
+            errors = []
+            
+            for idx, item in enumerate(data):
+                try:
+                    country = item.get('country')
+                    site_name = item.get('site_name')
+                    site_url = item.get('site_url')
+                    
+                    if not all([country, site_name, site_url]):
+                        errors.append(f"Row {idx + 1}: Missing required fields")
+                        continue
+                    
+                    # Create or update job site
+                    job_site, created = CountryJobSite.objects.update_or_create(
+                        country=country,
+                        site_name=site_name,
+                        defaults={'site_url': site_url}
+                    )
+                    
+                    if created:
+                        created_count += 1
+                    else:
+                        updated_count += 1
+                        
+                except Exception as e:
+                    errors.append(f"Row {idx + 1}: {str(e)}")
+            
+            # Show results
+            if created_count > 0:
+                messages.success(request, f"Successfully created {created_count} job site(s)")
+            if updated_count > 0:
+                messages.info(request, f"Updated {updated_count} existing job site(s)")
+            if errors:
+                for error in errors[:5]:
+                    messages.warning(request, error)
+                if len(errors) > 5:
+                    messages.warning(request, f"... and {len(errors) - 5} more errors")
+                    
+        except json.JSONDecodeError as e:
+            messages.error(request, f"Invalid JSON: {str(e)}")
+        except Exception as e:
+            messages.error(request, f"Error processing JSON: {str(e)}")

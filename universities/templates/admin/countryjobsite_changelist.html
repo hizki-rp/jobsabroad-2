@@ -1,0 +1,10 @@
+{% extends "admin/change_list.html" %}
+
+{% block object-tools-items %}
+  {{ block.super }}
+  <li>
+    <a href="bulk-import/" class="addlink">
+      Bulk Import from JSON
+    </a>
+  </li>
+{% endblock %}
