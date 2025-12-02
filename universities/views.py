@@ -351,7 +351,7 @@ class DashboardView(APIView):
                                 # Payment doesn't exist but draft has tx_ref - create payment record
                                 payment_to_use = Payment.objects.create(
                                     user=request.user,
-                                    amount=500.00,
+                                    amount=1000.00,
                                     tx_ref=draft.payment_tx_ref,
                                     status='success',
                                     payment_date=timezone.now()
@@ -374,7 +374,7 @@ class DashboardView(APIView):
                     
                     # Use update_subscription method
                     amount = payment_to_use.amount
-                    months_added = dashboard.update_subscription(amount, monthly_price=500)
+                    months_added = dashboard.update_subscription(amount, monthly_price=1000)
                     
                     # Mark payment as processed
                     payment_to_use.subscription_updated = True
@@ -393,7 +393,7 @@ class DashboardView(APIView):
                     
                     # Fallback - directly set fields
                     from decimal import Decimal
-                    amount = Decimal(str(payment_to_use.amount)) if payment_to_use else Decimal('500.00')
+                    amount = Decimal(str(payment_to_use.amount)) if payment_to_use else Decimal('1000.00')
                     dashboard.total_paid = Decimal(str(dashboard.total_paid)) + amount
                     dashboard.months_subscribed += 1
                     dashboard.subscription_status = 'active'
@@ -580,7 +580,7 @@ class InitializeChapaPaymentView(APIView):
         user = request.user
         # For simplicity, we define a fixed amount for a 1-month subscription.
         # In a real app, this might come from a product model or settings.
-        amount = "500"  # 500 ETB for 1 month
+        amount = "1000"  # 1000 ETB for 1 month
 
         # Generate a unique transaction reference, embedding the user ID.
         tx_ref = f"unifinder-{user.id}-{uuid.uuid4()}"
@@ -848,7 +848,7 @@ class PaymentWebhookView(APIView):
                 if not existing_payment.subscription_updated:
                     print(f"  - Payment not processed yet, updating subscription...")
                     try:
-                        months_added = dashboard.update_subscription(existing_payment.amount, monthly_price=500)
+                        months_added = dashboard.update_subscription(existing_payment.amount, monthly_price=1000)
                         
                         # Mark payment as processed
                         existing_payment.subscription_updated = True
@@ -874,7 +874,7 @@ class PaymentWebhookView(APIView):
             # Create payment with subscription_updated=True since we'll update it now
             payment = Payment.objects.create(
                 user=user,
-                amount=500.00,
+                amount=1000.00,
                 tx_ref=tx_ref,
                 status='success',
                 chapa_reference=webhook_data.get('reference', ''),
@@ -892,7 +892,7 @@ class PaymentWebhookView(APIView):
             
             # Process payment with update_subscription
             try:
-                months_added = dashboard.update_subscription(500.00, monthly_price=500)
+                months_added = dashboard.update_subscription(1000.00, monthly_price=1000)
                 
                 # Refresh after update_subscription to get latest state
                 dashboard.refresh_from_db()
@@ -907,7 +907,7 @@ class PaymentWebhookView(APIView):
                 
                 # Fallback - directly set fields
                 from decimal import Decimal
-                dashboard.total_paid = Decimal(str(dashboard.total_paid)) + Decimal('500.00')
+                dashboard.total_paid = Decimal(str(dashboard.total_paid)) + Decimal('1000.00')
                 dashboard.months_subscribed += 1
                 dashboard.subscription_status = 'active'
                 dashboard.is_verified = True
@@ -919,7 +919,7 @@ class PaymentWebhookView(APIView):
                 print(f"Used fallback to activate subscription for user {user.username}")
 
             print(f"Successfully processed payment for user {user.id}. New expiry: {dashboard.subscription_end_date}")
-            print(f"Payment recorded: {tx_ref} - 500 ETB")
+            print(f"Payment recorded: {tx_ref} - 1000 ETB")
 
             # 6. Conditional account creation & token generation based on ApplicationDraft
             try:

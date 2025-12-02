@@ -14,6 +14,7 @@ class Profile(models.Model):
     bio = models.TextField(blank=True, null=True)
     phone_number = models.CharField(max_length=20, blank=True)
     dob = models.DateField(null=True, blank=True)
+    age = models.PositiveIntegerField(null=True, blank=True)
     current_role = models.CharField(max_length=100, blank=True)
     years_experience = models.PositiveIntegerField(null=True, blank=True)
     skills = models.JSONField(default=list, blank=True)

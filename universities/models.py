@@ -100,7 +100,7 @@ class UserDashboard(models.Model):
     months_subscribed = models.IntegerField(default=0)
     is_verified = models.BooleanField(default=False)
     
-    def update_subscription(self, amount_paid, monthly_price=500):
+    def update_subscription(self, amount_paid, monthly_price=1000):
         from django.utils import timezone
         from datetime import timedelta
         from decimal import Decimal

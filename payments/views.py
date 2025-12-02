@@ -186,7 +186,7 @@ def confirm_payment(request):
             if not payment:
                 payment = Payment.objects.create(
                     user=user,
-                    amount=500.00,
+                    amount=1000.00,
                     tx_ref=tx_ref,
                     status='success',
                     payment_date=timezone.now()
@@ -214,7 +214,7 @@ def confirm_payment(request):
         
         print(f"Payment confirmation for user {user.username}:")
         print(f"  - Before update: status={dashboard.subscription_status}, end_date={dashboard.subscription_end_date}")
-        print(f"  - Payment amount: {payment.amount if payment else 500.00}")
+        print(f"  - Payment amount: {payment.amount if payment else 1000.00}")
         print(f"  - Payment subscription_updated: {payment.subscription_updated if payment else 'N/A'}")
         
         # Only update subscription if this payment hasn't been processed yet
@@ -336,7 +336,7 @@ def verify_and_update_subscription(request):
             tx_ref=tx_ref,
             defaults={
                 'user': user,
-                'amount': 500.00,
+                'amount': 1000.00,
                 'status': 'success',
                 'payment_date': timezone.now()
             }
@@ -350,7 +350,7 @@ def verify_and_update_subscription(request):
         dashboard, _ = UserDashboard.objects.get_or_create(user=user)
         
         if not payment.subscription_updated:
-            dashboard.total_paid = Decimal(str(dashboard.total_paid)) + Decimal('500.00')
+            dashboard.total_paid = Decimal(str(dashboard.total_paid)) + Decimal('1000.00')
             dashboard.months_subscribed += 1
             dashboard.subscription_status = 'active'
             dashboard.is_verified = True

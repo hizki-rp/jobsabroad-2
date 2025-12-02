@@ -92,7 +92,7 @@ def verify_and_update(tx_ref):
             tx_ref=tx_ref,
             defaults={
                 'user': user,
-                'amount': Decimal('500.00'),
+                'amount': Decimal('1000.00'),
                 'status': 'success',
                 'payment_date': timezone.now(),
                 'chapa_reference': payment_data.get('reference', '')
@@ -126,7 +126,7 @@ def verify_and_update(tx_ref):
         if not payment.subscription_updated:
             print(f"\n🔄 Updating subscription...")
             
-            dashboard.total_paid = Decimal(str(dashboard.total_paid)) + Decimal('500.00')
+            dashboard.total_paid = Decimal(str(dashboard.total_paid)) + Decimal('1000.00')
             dashboard.months_subscribed += 1
             dashboard.subscription_status = 'active'
             dashboard.is_verified = True

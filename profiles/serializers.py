@@ -32,7 +32,7 @@ class ProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = Profile
         fields = (
-            'user', 'bio', 'phone_number', 'dob', 'current_role', 'years_experience',
+            'user', 'bio', 'phone_number', 'dob', 'age', 'current_role', 'years_experience',
             'skills', 'country', 'work_experiences', 'job_preference',
             'first_name', 'last_name'
         )
@@ -74,7 +74,7 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
             # User fields
             'email', 'password', 'first_name', 'last_name',
             # Profile fields
-            'phone_number', 'dob', 'current_role', 'years_experience',
+            'phone_number', 'dob', 'age', 'current_role', 'years_experience',
             'skills', 'country',
             # Nested fields
             'work_experience', 'job_preference'
